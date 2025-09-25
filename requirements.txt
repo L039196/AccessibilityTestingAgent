@@ -1,0 +1,10 @@
+gymnasium
+playwright
+google-generativeai
+numpy
+Pillow
+Markdown
+beautifulsoup4
+axe-core-python
+tqdm
+
