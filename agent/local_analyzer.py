@@ -55,7 +55,12 @@ class LocalAnalyzer:
                     
                     # Try enhanced screenshot capture with multiple strategies
                     captured_path = await self._take_element_screenshot_robust(page, node, screenshot_path)
-                    node['screenshot'] = captured_path
+                    
+                    # Validate screenshot
+                    if captured_path and await self._validate_screenshot(captured_path):
+                        node['screenshot'] = captured_path
+                    else:
+                        node['screenshot'] = None
                     
                 except Exception as e:
                     print(f"Could not take screenshot for node {node.get('target')}: {e}")
@@ -89,7 +94,14 @@ class LocalAnalyzer:
                 bounding_box = await element.bounding_box()
                 
                 if is_visible and bounding_box and bounding_box['width'] > 0 and bounding_box['height'] > 0:
-                    await element.screenshot(path=screenshot_path, timeout=10000)
+                    # Check if element is too small for meaningful screenshot
+                    min_width, min_height = 50, 20
+                    if bounding_box['width'] < min_width or bounding_box['height'] < min_height:
+                        print(f"Element too small ({bounding_box['width']}x{bounding_box['height']}), using context screenshot")
+                        # Take screenshot with padding around the element
+                        await self._take_context_screenshot(page, element, screenshot_path)
+                    else:
+                        await element.screenshot(path=screenshot_path, timeout=10000)
                     print(f"✓ Direct screenshot successful for: {target_selector[:50]}...")
                     return screenshot_path
         except Exception as e:
@@ -125,7 +137,13 @@ class LocalAnalyzer:
 
         # Strategy 4: Page screenshot with element highlighting
         try:
-            await self._highlight_element_area(page, target_selector)
+            # Try to find element for highlighting
+            element = await page.query_selector(target_selector)
+            if element:
+                await self._highlight_target_element(page, element)
+            else:
+                # Use the old text-based highlighting as fallback
+                await self._highlight_element_area(page, target_selector)
             await page.screenshot(path=screenshot_path, full_page=False)
             print(f"✓ Page screenshot with highlighting successful")
             return screenshot_path
@@ -134,6 +152,117 @@ class LocalAnalyzer:
 
         print(f"✗ All screenshot strategies failed for: {target_selector[:50]}...")
         return None
+
+    async def _take_context_screenshot(self, page: Page, element, screenshot_path: str) -> None:
+        """
+        Take a screenshot with context around a small element.
+        
+        Args:
+            page: The Playwright Page object
+            element: The element to capture with context
+            screenshot_path: Path where screenshot should be saved
+        """
+        try:
+            # Get element bounding box
+            bounding_box = await element.bounding_box()
+            if not bounding_box:
+                # Fallback to full page screenshot
+                await page.screenshot(path=screenshot_path, full_page=False)
+                return
+            
+            # Calculate context area with padding
+            padding = 100  # pixels
+            viewport_size = await page.viewport_size()
+            
+            # Ensure we don't go outside viewport bounds
+            x = max(0, bounding_box['x'] - padding)
+            y = max(0, bounding_box['y'] - padding)
+            width = min(viewport_size['width'] - x, bounding_box['width'] + (2 * padding))
+            height = min(viewport_size['height'] - y, bounding_box['height'] + (2 * padding))
+            
+            # Ensure minimum screenshot size
+            min_size = 200
+            if width < min_size:
+                width = min(min_size, viewport_size['width'])
+                x = max(0, bounding_box['x'] - (width - bounding_box['width']) // 2)
+            if height < min_size:
+                height = min(min_size, viewport_size['height'])
+                y = max(0, bounding_box['y'] - (height - bounding_box['height']) // 2)
+            
+            # Highlight the target element before screenshot
+            await self._highlight_target_element(page, element)
+            
+            # Take context screenshot
+            await page.screenshot(
+                path=screenshot_path,
+                clip={'x': x, 'y': y, 'width': width, 'height': height}
+            )
+            
+            print(f"Context screenshot taken: {width}x{height} with element highlighted")
+            
+        except Exception as e:
+            print(f"Context screenshot failed, taking full page: {e}")
+            # Fallback to full page screenshot
+            await page.screenshot(path=screenshot_path, full_page=False)
+
+    async def _highlight_target_element(self, page: Page, element) -> None:
+        """
+        Add visual highlighting to the target element for screenshots.
+        
+        Args:
+            page: The Playwright Page object
+            element: The element to highlight
+        """
+        try:
+            # Inject highlighting script for the specific element
+            highlight_script = """
+            (element) => {
+                if (element) {
+                    // Remove any existing highlights
+                    const existingHighlights = document.querySelectorAll('.accessibility-highlight');
+                    existingHighlights.forEach(h => h.remove());
+                    
+                    // Create highlight overlay
+                    const highlight = document.createElement('div');
+                    const rect = element.getBoundingClientRect();
+                    highlight.style.position = 'fixed';
+                    highlight.style.left = rect.left + 'px';
+                    highlight.style.top = rect.top + 'px';
+                    highlight.style.width = Math.max(rect.width, 10) + 'px';
+                    highlight.style.height = Math.max(rect.height, 10) + 'px';
+                    highlight.style.border = '3px solid #ff0000';
+                    highlight.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+                    highlight.style.zIndex = '999999';
+                    highlight.style.pointerEvents = 'none';
+                    highlight.className = 'accessibility-highlight';
+                    
+                    // Add label if element is very small
+                    if (rect.width < 50 || rect.height < 20) {
+                        const label = document.createElement('div');
+                        label.style.position = 'fixed';
+                        label.style.left = (rect.left + rect.width + 5) + 'px';
+                        label.style.top = rect.top + 'px';
+                        label.style.backgroundColor = '#ff0000';
+                        label.style.color = '#ffffff';
+                        label.style.padding = '2px 6px';
+                        label.style.fontSize = '12px';
+                        label.style.zIndex = '999999';
+                        label.style.pointerEvents = 'none';
+                        label.textContent = 'Target Element';
+                        label.className = 'accessibility-highlight';
+                        document.body.appendChild(label);
+                    }
+                    
+                    document.body.appendChild(highlight);
+                }
+            }
+            """
+            await element.evaluate(highlight_script)
+            
+            # Wait a bit for highlight to render
+            await page.wait_for_timeout(300)
+        except Exception as e:
+            print(f"Could not highlight element: {e}")
 
     def _simplify_selector(self, selector: str) -> str:
         """
@@ -230,6 +359,48 @@ class LocalAnalyzer:
             await page.wait_for_timeout(500)
         except Exception as e:
             print(f"Could not highlight element: {e}")
+
+    async def _validate_screenshot(self, screenshot_path: str) -> bool:
+        """
+        Validate that a screenshot is not empty or too small.
+        
+        Args:
+            screenshot_path: Path to the screenshot file
+            
+        Returns:
+            True if screenshot is valid, False otherwise
+        """
+        try:
+            import os
+            from PIL import Image
+            
+            # Check file size
+            if not os.path.exists(screenshot_path):
+                return False
+                
+            file_size = os.path.getsize(screenshot_path)
+            if file_size < 1000:  # Less than 1KB is suspicious
+                print(f"Screenshot file too small: {file_size} bytes")
+                return False
+            
+            # Check image dimensions
+            with Image.open(screenshot_path) as img:
+                width, height = img.size
+                if width < 50 or height < 20:
+                    print(f"Screenshot dimensions too small: {width}x{height}")
+                    return False
+                
+                # Check if image is mostly empty (same color)
+                pixels = list(img.getdata())
+                if len(set(pixels)) < 5:  # Less than 5 unique colors
+                    print(f"Screenshot appears mostly empty (only {len(set(pixels))} unique colors)")
+                    return False
+                    
+            return True
+            
+        except Exception as e:
+            print(f"Error validating screenshot: {e}")
+            return False
 
     def format_report(self, violations: list, url: str) -> dict:
         """
