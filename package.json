@@ -57,7 +57,7 @@
     "view:tablet-ios": "open results/tablet/ios/accessibility_report_tablet_ios.html",
     "view:tablet-android": "open results/tablet/android/accessibility_report_tablet_android.html",
     "view:desktop": "open results/desktop/accessibility_report_desktop.html"
-  },
+    },
   "keywords": ["accessibility", "testing", "axe-core", "automation", "mobile", "tablet", "wcag"],
   "author": "Accessibility Testing Agent",
   "license": "MIT"
