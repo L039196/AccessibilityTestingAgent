@@ -172,7 +172,9 @@ class LocalAnalyzer:
             
             # Calculate context area with padding
             padding = 100  # pixels
-            viewport_size = await page.viewport_size()
+            viewport_size = page.viewport_size
+            if callable(viewport_size):
+                viewport_size = await viewport_size()
             
             # Ensure we don't go outside viewport bounds
             x = max(0, bounding_box['x'] - padding)

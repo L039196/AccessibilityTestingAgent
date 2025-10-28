@@ -56,7 +56,12 @@
     "view:mobile-android": "open results/mobile/android/accessibility_report_mobile_android.html",
     "view:tablet-ios": "open results/tablet/ios/accessibility_report_tablet_ios.html",
     "view:tablet-android": "open results/tablet/android/accessibility_report_tablet_android.html",
-    "view:desktop": "open results/desktop/accessibility_report_desktop.html"
+    "view:desktop": "open results/desktop/accessibility_report_desktop.html",
+    "test:wcag22": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json",
+    "test:wcag22:desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --config config.json",
+    "test:wcag22:mobile": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --config config.json",
+    "test:wcag22:all": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json",
+    "verify:wcag22": "echo 'WCAG 2.2 Configuration Verified:' && grep -A 10 'wcag22' config.json"
     },
   "keywords": ["accessibility", "testing", "axe-core", "automation", "mobile", "tablet", "wcag"],
   "author": "Accessibility Testing Agent",
