@@ -21,6 +21,10 @@ class Config:
     results_folder: str = "results"
     axe_rules: Optional[Dict[str, Any]] = None
     device_profiles: Optional[Dict[str, Any]] = None
+    headless: bool = True
+    parallel: bool = True
+    max_workers: int = 8
+    additional_workers_per_device: int = 2
 
 class Agent:
     """
@@ -75,7 +79,7 @@ class Agent:
     async def _crawl(self, playwright_instance) -> List[str]:
         """Crawl the website to find all pages to test."""
         print("Launching crawler browser...")
-        crawler_browser = await playwright_instance.chromium.launch(headless=True)
+        crawler_browser = await playwright_instance.chromium.launch(headless=self.config.headless)
         page = await crawler_browser.new_page()
         try:
             urls = await self.crawler.crawl(page)
@@ -87,6 +91,13 @@ class Agent:
             print("Crawler browser closed.")
 
     async def _run_tests_for_device_type(self, playwright_instance, urls: List[str], device_type: str, pbar: "tqdm"):
+        """Launch browsers and run tests for a specific device type (parallel or sequential)."""
+        if self.config.parallel:
+            await self._run_tests_parallel(playwright_instance, urls, device_type, pbar)
+        else:
+            await self._run_tests_sequential(playwright_instance, urls, device_type, pbar)
+
+    async def _run_tests_parallel(self, playwright_instance, urls: List[str], device_type: str, pbar: "tqdm"):
         """Launch browsers and run tests in parallel for a specific device type."""
         url_queue = asyncio.Queue()
         for url in urls:
@@ -134,6 +145,113 @@ class Agent:
         print("Closing browsers...")
         await asyncio.gather(*[b[0].close() for b in browsers])
 
+    async def _run_tests_sequential(self, playwright_instance, urls: List[str], device_type: str, pbar: "tqdm"):
+        """Run tests sequentially for a specific device type (one browser at a time)."""
+        print(f"Running sequential tests for {device_type}...")
+        
+        # Get device profiles for this device type
+        if device_type.startswith('mobile-'):
+            form_factor = 'mobile'
+            platform = device_type.replace('mobile-', '')
+        elif device_type.startswith('tablet-'):
+            form_factor = 'tablet'
+            platform = device_type.replace('tablet-', '')
+        else:
+            form_factor = device_type
+            platform = None
+            
+        # Get device profiles
+        if platform and self.config.device_profiles:
+            device_profiles = self.config.device_profiles.get(form_factor, {}).get(platform, {})
+        elif self.config.device_profiles:
+            device_profiles = self.config.device_profiles.get(form_factor, {})
+        else:
+            # Fallback if no device profiles are configured
+            device_profiles = {"default": {}}
+        
+        if not device_profiles:
+            print(f"No device profiles found for {device_type}. Skipping.")
+            return
+            
+        # Process each device sequentially
+        for device_name, device_config in device_profiles.items():
+            print(f"Testing on {device_name}...")
+            
+            # Launch single browser for this device
+            try:
+                preferred_browser = 'chromium'
+                browser = await getattr(playwright_instance, preferred_browser).launch(headless=self.config.headless)
+                
+                # Test all URLs on this device
+                for url in urls:
+                    try:
+                        await self._test_single_url(browser, device_config, device_type, url, device_name)
+                        pbar.update(1)
+                    except Exception as e:
+                        print(f"Error testing {url} on {device_name}: {e}")
+                        pbar.update(1)
+                
+                await browser.close()
+                print(f"Completed testing on {device_name}")
+                
+            except Exception as e:
+                print(f"Failed to launch browser for {device_name}: {e}")
+
+    async def _test_single_url(self, browser, device_config, device_type: str, url: str, device_name: str):
+        """Test a single URL on a specific device configuration."""
+        print(f"Testing page: {url} on {device_name}")
+        
+        # Convert device config to Playwright format
+        playwright_config = self._convert_device_config(device_config)
+        
+        # Create context with device emulation
+        context = await browser.new_context(**playwright_config)
+        page = await context.new_page()
+        
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            
+            # Run accessibility analysis
+            issues = await self.analyzer.find_issues(page, device_type, device_name)
+            
+            # Store result
+            self.results[device_type].append({
+                'url': url,
+                'device': device_name,
+                'issues': issues,
+                'analysis': {'violations': issues}
+            })
+            
+        except Exception as e:
+            print(f"Error analyzing {url} on {device_name}: {e}")
+        finally:
+            await page.close()
+            await context.close()
+
+    def _convert_device_config(self, device_config: dict) -> dict:
+        """Convert device config from JSON format to Playwright format."""
+        playwright_config = {}
+        
+        # Map the config parameters to Playwright format
+        if 'viewport' in device_config:
+            playwright_config['viewport'] = device_config['viewport']
+        if 'userAgent' in device_config:
+            playwright_config['user_agent'] = device_config['userAgent']
+        if 'deviceScaleFactor' in device_config:
+            playwright_config['device_scale_factor'] = device_config['deviceScaleFactor']
+        if 'isMobile' in device_config:
+            playwright_config['is_mobile'] = device_config['isMobile']
+        if 'hasTouch' in device_config:
+            playwright_config['has_touch'] = device_config['hasTouch']
+        if 'colorScheme' in device_config:
+            playwright_config['color_scheme'] = device_config['colorScheme']
+        if 'reducedMotion' in device_config:
+            playwright_config['reduced_motion'] = device_config['reducedMotion']
+        if 'forcedColors' in device_config:
+            playwright_config['forced_colors'] = device_config['forcedColors']
+            
+        return playwright_config
+
     async def _launch_browsers_for_device(self, playwright_instance, device_type: str) -> List[tuple]:
         """Launches browsers with device emulation for the specified device type."""
         browsers = []
@@ -170,22 +288,33 @@ class Agent:
             try:
                 print(f"Launching {preferred_browser} instance for {device_name} emulation...")
                 # Launch browser with device context
-                browser = await getattr(playwright_instance, preferred_browser).launch(headless=True)
+                browser = await getattr(playwright_instance, preferred_browser).launch(headless=self.config.headless)
                 browsers.append((browser, device_config))
             except Exception as e:
                 print(f"!!! Could not launch {preferred_browser} with {device_name}: {e}")
                 
         # If we want even more parallelization, we can launch additional workers
         # This creates multiple worker instances for the same devices to process URLs faster
-        additional_workers = min(2, len(device_profiles))  # Max 2 additional workers per device
+        additional_workers = min(self.config.additional_workers_per_device, len(device_profiles))
+        max_devices_for_additional_workers = min(2, len(device_profiles))  # Limit to avoid too many workers
+        
         for i in range(additional_workers):
-            for device_name, device_config in list(device_profiles.items())[:2]:  # Limit to 2 most important devices
+            for device_name, device_config in list(device_profiles.items())[:max_devices_for_additional_workers]:
+                # Check if we haven't exceeded max_workers limit
+                if len(browsers) >= self.config.max_workers:
+                    print(f"Reached max workers limit ({self.config.max_workers}), stopping worker creation.")
+                    break
+                    
                 try:
                     print(f"Launching additional {preferred_browser} worker #{i+1} for {device_name}...")
-                    browser = await getattr(playwright_instance, preferred_browser).launch(headless=True)
+                    browser = await getattr(playwright_instance, preferred_browser).launch(headless=self.config.headless)
                     browsers.append((browser, device_config))
                 except Exception as e:
                     print(f"!!! Could not launch additional {preferred_browser} worker: {e}")
+            
+            # Break outer loop if max workers reached
+            if len(browsers) >= self.config.max_workers:
+                break
                     
         return browsers
 

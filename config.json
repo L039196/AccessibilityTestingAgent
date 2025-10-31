@@ -5,6 +5,9 @@
     "report_filename": "accessibility_report.html",
     "report_format": "html",
     "results_folder": "results",
+    "parallel": true,
+    "max_workers": 8,
+    "additional_workers_per_device": 2,
     "axe_rules": {
         "runOnly": {
             "type": "tag",

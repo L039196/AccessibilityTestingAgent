@@ -25,7 +25,7 @@ def load_urls_from_csv(csv_path: str) -> list[str]:
                 urls.append(row[0])
     return urls
 
-async def main(url: str, max_pages: int, config_path: str, csv_path: str, device_type: str = None, device_name: str = None):
+async def main(url: str, max_pages: int, config_path: str, csv_path: str, device_type: str = None, device_name: str = None, headless: bool = None, parallel: bool = None, max_workers: int = None, additional_workers: int = None):
     """
     Main function to run the local accessibility test agent.
     """
@@ -48,6 +48,14 @@ async def main(url: str, max_pages: int, config_path: str, csv_path: str, device
         config_data['max_pages'] = max_pages
     if device_type:
         config_data['device_types'] = [device_type]
+    if headless is not None:
+        config_data['headless'] = headless
+    if parallel is not None:
+        config_data['parallel'] = parallel
+    if max_workers is not None:
+        config_data['max_workers'] = max_workers
+    if additional_workers is not None:
+        config_data['additional_workers_per_device'] = additional_workers
     
     # If device_name is specified, filter the device profiles
     if device_name and device_type:
@@ -107,6 +115,10 @@ if __name__ == "__main__":
     parser.add_argument("--csv", type=str, default=None, help="Path to a CSV file containing a list of URLs to test.")
     parser.add_argument("--device", type=str, choices=["desktop", "mobile-ios", "mobile-android", "tablet-ios", "tablet-android"], default=None, help="Specific device type to test (overrides config).")
     parser.add_argument("--device-name", type=str, default=None, help="Specific device name to test (requires --device).")
+    parser.add_argument("--headless", type=str, choices=["true", "false"], default=None, help="Run browser in headless mode (true) or headed mode (false).")
+    parser.add_argument("--parallel", type=str, choices=["true", "false"], default=None, help="Run tests in parallel (true) or sequential (false) mode.")
+    parser.add_argument("--max-workers", type=int, default=None, help="Maximum number of parallel worker browsers (default: 8).")
+    parser.add_argument("--additional-workers", type=int, default=None, help="Additional workers per device for parallelization (default: 2).")
     
     args = parser.parse_args()
     
@@ -114,4 +126,14 @@ if __name__ == "__main__":
     if args.device_name and not args.device:
         parser.error("--device-name requires --device to be specified")
     
-    asyncio.run(main(args.url, args.max_pages, args.config, args.csv, args.device, args.device_name))
+    # Convert headless string to boolean
+    headless = None
+    if args.headless:
+        headless = args.headless.lower() == "true"
+    
+    # Convert parallel string to boolean
+    parallel = None
+    if args.parallel:
+        parallel = args.parallel.lower() == "true"
+    
+    asyncio.run(main(args.url, args.max_pages, args.config, args.csv, args.device, args.device_name, headless, parallel, args.max_workers, args.additional_workers))
