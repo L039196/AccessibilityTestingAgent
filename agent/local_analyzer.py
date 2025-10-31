@@ -4,6 +4,7 @@ import json
 import uuid
 import os
 import re
+import asyncio
 
 class LocalAnalyzer:
     """
@@ -45,27 +46,52 @@ class LocalAnalyzer:
             
         os.makedirs(screenshots_dir, exist_ok=True)
 
+        # Limit screenshots to prevent infinite loops and resource exhaustion
+        max_screenshots_per_page = 10
+        screenshot_count = 0
+
         for violation in violations:
+            if screenshot_count >= max_screenshots_per_page:
+                print(f"⚠️ Screenshot limit reached ({max_screenshots_per_page}), skipping remaining violations")
+                break
+                
+            # Limit screenshots per violation to prevent too many
+            max_screenshots_per_violation = 3
+            violation_screenshot_count = 0
+            
             for node in violation['nodes']:
+                if screenshot_count >= max_screenshots_per_page or violation_screenshot_count >= max_screenshots_per_violation:
+                    break
+                    
                 try:
                     # Generate screenshot filename
                     clean_device_type = device_type.replace('-', '_')
                     screenshot_filename = f"screenshot_{clean_device_type}_{device_name.replace(' ', '_')}_{uuid.uuid4().hex[:8]}.png"
                     screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
                     
-                    # Try enhanced screenshot capture with multiple strategies
-                    captured_path = await self._take_element_screenshot_robust(page, node, screenshot_path)
+                    # Try enhanced screenshot capture with timeout to prevent hanging
+                    captured_path = await asyncio.wait_for(
+                        self._take_element_screenshot_robust(page, node, screenshot_path),
+                        timeout=10.0  # 10 second timeout per screenshot
+                    )
                     
                     # Validate screenshot
                     if captured_path and await self._validate_screenshot(captured_path):
                         node['screenshot'] = captured_path
+                        screenshot_count += 1
+                        violation_screenshot_count += 1
+                        print(f"✓ Screenshot captured for violation element ({screenshot_count}/{max_screenshots_per_page})")
                     else:
                         node['screenshot'] = None
                     
+                except asyncio.TimeoutError:
+                    print(f"⚠️ Screenshot timeout for node {node.get('target', 'unknown')}")
+                    node['screenshot'] = None
                 except Exception as e:
-                    print(f"Could not take screenshot for node {node.get('target')}: {e}")
+                    print(f"⚠️ Screenshot failed for node {node.get('target', 'unknown')}: {e}")
                     node['screenshot'] = None
         
+        print(f"✅ Analysis complete: {len(violations)} violations found, {screenshot_count} screenshots taken")
         return violations
 
     async def _take_element_screenshot_robust(self, page: Page, node: dict, screenshot_path: str) -> str:
@@ -216,55 +242,42 @@ class LocalAnalyzer:
             element: The element to highlight
         """
         try:
-            # Inject highlighting script for the specific element
+            # Inject highlighting script for the specific element (simplified to prevent loops)
             highlight_script = """
             (element) => {
                 if (element) {
-                    // Remove any existing highlights
+                    // Remove any existing highlights (limit to prevent infinite operations)
                     const existingHighlights = document.querySelectorAll('.accessibility-highlight');
-                    existingHighlights.forEach(h => h.remove());
-                    
-                    // Create highlight overlay
-                    const highlight = document.createElement('div');
-                    const rect = element.getBoundingClientRect();
-                    highlight.style.position = 'fixed';
-                    highlight.style.left = rect.left + 'px';
-                    highlight.style.top = rect.top + 'px';
-                    highlight.style.width = Math.max(rect.width, 10) + 'px';
-                    highlight.style.height = Math.max(rect.height, 10) + 'px';
-                    highlight.style.border = '3px solid #ff0000';
-                    highlight.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
-                    highlight.style.zIndex = '999999';
-                    highlight.style.pointerEvents = 'none';
-                    highlight.className = 'accessibility-highlight';
-                    
-                    // Add label if element is very small
-                    if (rect.width < 50 || rect.height < 20) {
-                        const label = document.createElement('div');
-                        label.style.position = 'fixed';
-                        label.style.left = (rect.left + rect.width + 5) + 'px';
-                        label.style.top = rect.top + 'px';
-                        label.style.backgroundColor = '#ff0000';
-                        label.style.color = '#ffffff';
-                        label.style.padding = '2px 6px';
-                        label.style.fontSize = '12px';
-                        label.style.zIndex = '999999';
-                        label.style.pointerEvents = 'none';
-                        label.textContent = 'Target Element';
-                        label.className = 'accessibility-highlight';
-                        document.body.appendChild(label);
+                    if (existingHighlights.length < 100) {  // Safety limit
+                        existingHighlights.forEach(h => h.remove());
                     }
                     
-                    document.body.appendChild(highlight);
+                    // Create simple highlight overlay
+                    const highlight = document.createElement('div');
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        highlight.style.position = 'fixed';
+                        highlight.style.left = rect.left + 'px';
+                        highlight.style.top = rect.top + 'px';
+                        highlight.style.width = rect.width + 'px';
+                        highlight.style.height = rect.height + 'px';
+                        highlight.style.border = '2px solid red';
+                        highlight.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+                        highlight.style.zIndex = '999999';
+                        highlight.style.pointerEvents = 'none';
+                        highlight.className = 'accessibility-highlight';
+                        document.body.appendChild(highlight);
+                    }
                 }
             }
             """
             await element.evaluate(highlight_script)
             
-            # Wait a bit for highlight to render
-            await page.wait_for_timeout(300)
+            # Shorter wait to prevent hanging
+            await page.wait_for_timeout(200)
         except Exception as e:
-            print(f"Could not highlight element: {e}")
+            # Silently fail highlighting to prevent spam
+            pass
 
     def _simplify_selector(self, selector: str) -> str:
         """
