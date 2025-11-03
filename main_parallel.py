@@ -6,6 +6,7 @@ from agent.agent import Agent, Config
 from agent.crawler import Crawler
 from agent.local_analyzer import LocalAnalyzer
 from agent.reporter import ReportGenerator
+from agent.csv_loader import load_enhanced_csv, load_urls_from_csv
 
 def load_config(config_path: str) -> dict:
     """Loads the configuration from a JSON file."""
@@ -14,32 +15,23 @@ def load_config(config_path: str) -> dict:
             return json.load(f)
     return {}
 
-def load_urls_from_csv(csv_path: str) -> list[str]:
-    """Loads a list of URLs from a CSV file."""
-    urls = []
-    with open(csv_path, 'r', newline='') as f:
-        reader = csv.reader(f)
-        next(reader)  # Skip header row
-        for row in reader:
-            if row:
-                urls.append(row[0])
-    return urls
-
-async def main(url: str, max_pages: int, config_path: str, csv_path: str, device_type: str = None, device_name: str = None, headless: bool = None, parallel: bool = None, max_workers: int = None, additional_workers: int = None):
+async def main(url: str, max_pages: int, config_path: str, csv_path: str, device_type: str = None, device_name: str = None, headless: bool = None, parallel: bool = None, max_workers: int = None, additional_workers: int = None, use_sso: bool = False, sso_provider: str = None):
     """
-    Main function to run the local accessibility test agent.
+    Main function to run the local accessibility test agent with SSO support.
     """
     config_data = load_config(config_path)
-    urls_to_test = []
+    test_configs = []
 
     if csv_path:
         print(f"Loading URLs from {csv_path}...")
-        urls_to_test = load_urls_from_csv(csv_path)
-        if not urls_to_test:
+        # Load enhanced CSV format with SSO support
+        test_configs = load_enhanced_csv(csv_path)
+        
+        if not test_configs:
             raise ValueError("CSV file is empty or could not be read.")
         # Use the first URL from CSV as the base_url if no explicit url is given
         if not url:
-            url = urls_to_test[0]
+            url = test_configs[0].url
     
     # CLI arguments override config file settings
     if url:
@@ -55,6 +47,18 @@ async def main(url: str, max_pages: int, config_path: str, csv_path: str, device
     if max_workers is not None:
         config_data['max_workers'] = max_workers
     if additional_workers is not None:
+        config_data['additional_workers'] = additional_workers
+    
+    # Auto-enable SSO if any test requires auth
+    if test_configs and any(tc.requires_auth for tc in test_configs):
+        config_data['use_sso'] = True
+        # Use the first mfa_template found, or default to 'lilly'
+        mfa_template = next((tc.mfa_template for tc in test_configs if tc.mfa_template), 'lilly')
+        config_data['sso_provider'] = sso_provider or mfa_template or 'lilly'
+        print(f"🔐 SSO enabled automatically - detected auth requirement with provider: {config_data['sso_provider']}")
+    elif use_sso:
+        config_data['use_sso'] = True
+        config_data['sso_provider'] = sso_provider or 'lilly'
         config_data['additional_workers_per_device'] = additional_workers
     
     # If device_name is specified, filter the device profiles
@@ -93,6 +97,9 @@ async def main(url: str, max_pages: int, config_path: str, csv_path: str, device
     if 'base_url' not in config_data:
         raise ValueError("The base URL must be provided either via a command-line argument, a CSV file, or in the config file.")
 
+    # Debug: Print config_data to see what's being passed
+    print("🔍 Debug - config_data keys:", list(config_data.keys()))
+
     config = Config(
         base_url=config_data.pop('base_url'),
         **config_data
@@ -103,8 +110,8 @@ async def main(url: str, max_pages: int, config_path: str, csv_path: str, device
     analyzer = LocalAnalyzer(axe_rules=config.axe_rules)
     reporter = ReportGenerator()
 
-    # Inject components into the agent
-    agent = Agent(config, crawler, analyzer, reporter, urls_to_test=urls_to_test or None)
+    # Inject components into the agent - pass TestConfig objects directly
+    agent = Agent(config, crawler, analyzer, reporter, urls_to_test=test_configs or None)
     await agent.run()
 
 if __name__ == "__main__":
@@ -119,6 +126,9 @@ if __name__ == "__main__":
     parser.add_argument("--parallel", type=str, choices=["true", "false"], default=None, help="Run tests in parallel (true) or sequential (false) mode.")
     parser.add_argument("--max-workers", type=int, default=None, help="Maximum number of parallel worker browsers (default: 8).")
     parser.add_argument("--additional-workers", type=int, default=None, help="Additional workers per device for parallelization (default: 2).")
+    parser.add_argument("--sso", action="store_true", help="Enable SSO authentication for testing authenticated pages.")
+    parser.add_argument("--sso-provider", type=str, choices=["lilly", "microsoft", "okta", "auth0"], default="lilly", help="SSO provider to use (default: lilly).")
+    parser.add_argument("--headed", action="store_true", help="Run browsers in headed mode (visible). Default is headless.")
     
     args = parser.parse_args()
     
@@ -126,14 +136,16 @@ if __name__ == "__main__":
     if args.device_name and not args.device:
         parser.error("--device-name requires --device to be specified")
     
-    # Convert headless string to boolean
+    # Convert headless string to boolean, or handle --headed flag
     headless = None
     if args.headless:
         headless = args.headless.lower() == "true"
+    elif args.headed:
+        headless = False  # --headed means not headless
     
     # Convert parallel string to boolean
     parallel = None
     if args.parallel:
         parallel = args.parallel.lower() == "true"
     
-    asyncio.run(main(args.url, args.max_pages, args.config, args.csv, args.device, args.device_name, headless, parallel, args.max_workers, args.additional_workers))
+    asyncio.run(main(args.url, args.max_pages, args.config, args.csv, args.device, args.device_name, headless, parallel, args.max_workers, args.additional_workers, args.sso, args.sso_provider))

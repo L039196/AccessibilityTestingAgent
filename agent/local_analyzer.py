@@ -94,6 +94,43 @@ class LocalAnalyzer:
         print(f"✅ Analysis complete: {len(violations)} violations found, {screenshot_count} screenshots taken")
         return violations
 
+    async def analyze_page(self, page: Page, url: str, device_type: str = "desktop", device_name: str = "Desktop") -> list:
+        """
+        Analyze a page for accessibility issues (method expected by Agent class).
+        This is a wrapper around find_issues for compatibility.
+        
+        Args:
+            page: The Playwright Page object to analyze.
+            url: The URL being analyzed.
+            device_type: The type of device (desktop, mobile, tablet).
+            device_name: The specific device name.
+            
+        Returns:
+            A list of violation dictionaries with enhanced metadata.
+        """
+        try:
+            violations = await self.find_issues(page, device_type, device_name)
+            
+            # Add metadata to each violation
+            for violation in violations:
+                violation['url'] = url
+                violation['device_type'] = device_type
+                violation['device_name'] = device_name
+                violation['timestamp'] = violation.get('timestamp', '')
+                
+            return violations
+            
+        except Exception as e:
+            print(f"❌ Error analyzing page {url}: {e}")
+            return [{
+                'url': url,
+                'device_type': device_type,
+                'device_name': device_name,
+                'error': str(e),
+                'description': f"Analysis failed for {url}",
+                'violations': []
+            }]
+
     async def _take_element_screenshot_robust(self, page: Page, node: dict, screenshot_path: str) -> str:
         """
         Enhanced screenshot capture with multiple fallback strategies.

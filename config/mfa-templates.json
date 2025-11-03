@@ -1,0 +1,140 @@
+{
+  "templateName": "Universal SSO MFA Templates",
+  "version": "1.0.0",
+  "description": "SSO authentication configurations for accessibility testing",
+  
+  "lilly": {
+    "projectName": "Eli Lilly and Company",
+    "mfaProvider": "microsoft-authenticator",
+    "authFlow": {
+      "loginUrl": "https://feature.dev.chat.lilly.com/",
+      "redirectPatterns": [
+        "**/login.microsoftonline.com/**",
+        "**/18a59a81-eea8-4c30-948a-d8824cdc2580/**"
+      ],
+      "successPatterns": [
+        "**/feature.dev.chat.lilly.com/**",
+        "**/cortex/chat/**",
+        "**/lilly.com/**"
+      ]
+    },
+    "credentials": {
+      "username": "SPE_AUTOMATION_ACC@elililly.onmicrosoft.com",
+      "password": "env:SSO_PASSWORD",
+      "domain": "elililly.onmicrosoft.com",
+      "accountType": "service",
+      "automationEnabled": true
+    },
+    "mfaConfig": {
+      "type": "service-account",
+      "method": "automated-credentials",
+      "waitTime": 30000,
+      "pollInterval": 1000,
+      "description": "Service account auto-login with predefined credentials",
+      "skipMFA": true,
+      "automatedFlow": true
+    },
+    "selectors": {
+      "usernameField": "input[name='loginfmt'], input[id='i0116'], input[type='email']",
+      "passwordField": "input[name='passwd'], input[id='i0118'], input[type='password']",
+      "mfaField": "input[name='otc'], input[id='idTxtBx_SAOTCC_OTC']",
+      "submitButton": "input[type='submit'], input[id='idSIButton9']",
+      "nextButton": "input[id='idSIButton9']",
+      "mfaChoice": "div[data-value='PhoneAppNotification'], a[data-value='PhoneAppNotification']"
+    }
+  },
+  
+  "microsoft": {
+    "projectName": "Microsoft Azure AD",
+    "mfaProvider": "microsoft-authenticator",
+    "authFlow": {
+      "loginUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "redirectPatterns": [
+        "**/login.microsoftonline.com/**"
+      ],
+      "successPatterns": [
+        "**/portal.azure.com/**",
+        "**/office.com/**",
+        "**/microsoft.com/**"
+      ]
+    },
+    "credentials": {
+      "username": "env:SSO_USERNAME",
+      "password": "env:SSO_PASSWORD"
+    },
+    "mfaConfig": {
+      "type": "totp",
+      "secret": "env:AZURE_MFA_SECRET",
+      "digits": 6,
+      "period": 30
+    },
+    "selectors": {
+      "usernameField": "input[name='loginfmt']",
+      "passwordField": "input[name='passwd']",
+      "mfaField": "input[name='otc']",
+      "submitButton": "input[type='submit']",
+      "nextButton": "input[type='submit'][value='Next']"
+    }
+  },
+  
+  "okta": {
+    "projectName": "Okta Enterprise SSO",
+    "mfaProvider": "okta-verify",
+    "authFlow": {
+      "loginUrl": "https://{org}.okta.com/oauth2/v1/authorize",
+      "redirectPatterns": [
+        "**/okta.com/**"
+      ],
+      "successPatterns": [
+        "**/app.okta.com/**"
+      ]
+    },
+    "credentials": {
+      "username": "env:SSO_USERNAME",
+      "password": "env:SSO_PASSWORD"
+    },
+    "mfaConfig": {
+      "type": "totp",
+      "secret": "env:OKTA_MFA_SECRET",
+      "digits": 6,
+      "period": 30
+    },
+    "selectors": {
+      "usernameField": "#okta-signin-username",
+      "passwordField": "#okta-signin-password",
+      "mfaField": "input[name='answer']",
+      "submitButton": "#okta-signin-submit",
+      "mfaChoice": "a[data-se='factor-question']"
+    }
+  },
+  
+  "auth0": {
+    "projectName": "Auth0 SSO",
+    "mfaProvider": "google-authenticator",
+    "authFlow": {
+      "loginUrl": "https://{domain}.auth0.com/authorize",
+      "redirectPatterns": [
+        "**/auth0.com/**"
+      ],
+      "successPatterns": [
+        "**/app.auth0.com/**"
+      ]
+    },
+    "credentials": {
+      "username": "env:SSO_USERNAME",
+      "password": "env:SSO_PASSWORD"
+    },
+    "mfaConfig": {
+      "type": "totp",
+      "secret": "env:AUTH0_MFA_SECRET",
+      "digits": 6,
+      "period": 30
+    },
+    "selectors": {
+      "usernameField": "input[name='email'], input[name='username']",
+      "passwordField": "input[name='password']",
+      "mfaField": "input[name='code']",
+      "submitButton": "button[name='submit'], button[type='submit']"
+    }
+  }
+}
