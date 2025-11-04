@@ -1,64 +1,280 @@
 {
-  "name": "accessibility-test-agent",
-  "version": "1.0.0",
-  "description": "Automated Accessibility Testing Agent with multi-device support",
+  "name": "advanced-accessibility-testing-agent",
+  "version": "2.0.0",
+  "description": "AI-Powered Accessibility Testing Agent with WCAG 2.2 Compliance - Web, Mobile, Tablet Platforms",
+  "type": "module",
+  "main": "main_parallel.py",
+  "keywords": ["accessibility", "testing", "axe-core", "automation", "mobile", "tablet", "wcag", "wcag22", "ai", "playwright", "csv"],
+  "author": "Enterprise Accessibility Testing Team",
+  "license": "MIT",
   "scripts": {
-    "test": "./venv/bin/python main_parallel.py --csv urls_to_test.csv",
+    "start": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --headless=false",
+    "test": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --headless=false",
+    
     "test:desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop",
+    "test:desktop:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --headless=true",
+    "test:desktop:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --headless=false",
+    "test:desktop:sequential": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --parallel=false",
+    "test:desktop:sequential:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --parallel=false --headless=true",
+    "test:desktop:sequential:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --parallel=false --headless=false",
+    
+    "test:mobile": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios",
+    "test:mobile:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=true",
+    "test:mobile:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=false",
+    "test:mobile:sequential": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --parallel=false",
+    "test:mobile:sequential:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --parallel=false --headless=true",
+    "test:mobile:sequential:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --parallel=false --headless=false",
+    
+    "test:tablet": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios",
+    "test:tablet:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=true",
+    "test:tablet:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=false",
+    "test:tablet:sequential": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --parallel=false",
+    "test:tablet:sequential:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --parallel=false --headless=true",
+    "test:tablet:sequential:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --parallel=false --headless=false",
+    
     "test:mobile-ios": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios",
+    "test:mobile-ios:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=true",
+    "test:mobile-ios:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=false",
+    
     "test:mobile-android": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android",
+    "test:mobile-android:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --headless=true",
+    "test:mobile-android:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --headless=false",
+    
     "test:tablet-ios": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios",
+    "test:tablet-ios:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=true",
+    "test:tablet-ios:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=false",
+    
     "test:tablet-android": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android",
-    "test:all": "./venv/bin/python main_parallel.py --csv urls_to_test.csv",
-    "test:csv": "./venv/bin/python main_parallel.py --csv urls_to_test.csv",
-    "test:csv:desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop",
-    "test:csv:mobile-ios": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios",
-    "test:csv:mobile-android": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android",
-    "test:csv:tablet-ios": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios",
-    "test:csv:tablet-android": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android",
+    "test:tablet-android:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --headless=true",
+    "test:tablet-android:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --headless=false",
+    
     "test:iphone15": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 15 Pro'",
+    "test:iphone15:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 15 Pro' --headless=true",
+    "test:iphone15:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 15 Pro' --headless=false",
+    
     "test:iphone14": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 14'",
+    "test:iphone14:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 14' --headless=true",
+    "test:iphone14:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 14' --headless=false",
+    
     "test:iphone13": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 13'",
+    "test:iphone13:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 13' --headless=true",
+    "test:iphone13:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone 13' --headless=false",
+    
     "test:iphone-se": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone SE'",
+    "test:iphone-se:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone SE' --headless=true",
+    "test:iphone-se:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --device-name 'iPhone SE' --headless=false",
+    
     "test:ipad-pro": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Pro 12.9'",
+    "test:ipad-pro:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Pro 12.9' --headless=true",
+    "test:ipad-pro:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Pro 12.9' --headless=false",
+    
     "test:ipad-air": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Air'",
+    "test:ipad-air:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Air' --headless=true",
+    "test:ipad-air:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Air' --headless=false",
+    
     "test:ipad": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad'",
+    "test:ipad:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad' --headless=true",
+    "test:ipad:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad' --headless=false",
+    
     "test:ipad-mini": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Mini'",
+    "test:ipad-mini:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Mini' --headless=true",
+    "test:ipad-mini:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --device-name 'iPad Mini' --headless=false",
+    
     "test:galaxy-s24": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S24 Ultra'",
+    "test:galaxy-s24:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S24 Ultra' --headless=true",
+    "test:galaxy-s24:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S24 Ultra' --headless=false",
+    
     "test:galaxy-s23": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S23'",
+    "test:galaxy-s23:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S23' --headless=true",
+    "test:galaxy-s23:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S23' --headless=false",
+    
     "test:galaxy-s21": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S21'",
+    "test:galaxy-s21:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S21' --headless=true",
+    "test:galaxy-s21:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Samsung Galaxy S21' --headless=false",
+    
     "test:pixel8": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Google Pixel 8'",
+    "test:pixel8:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Google Pixel 8' --headless=true",
+    "test:pixel8:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Google Pixel 8' --headless=false",
+    
     "test:pixel7": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Google Pixel 7'",
+    "test:pixel7:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Google Pixel 7' --headless=true",
+    "test:pixel7:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'Google Pixel 7' --headless=false",
+    
     "test:oneplus11": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'OnePlus 11'",
+    "test:oneplus11:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'OnePlus 11' --headless=true",
+    "test:oneplus11:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-android --device-name 'OnePlus 11' --headless=false",
+    
     "test:galaxy-tab-s9": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Samsung Galaxy Tab S9'",
+    "test:galaxy-tab-s9:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Samsung Galaxy Tab S9' --headless=true",
+    "test:galaxy-tab-s9:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Samsung Galaxy Tab S9' --headless=false",
+    
     "test:galaxy-tab": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Samsung Galaxy Tab'",
+    "test:galaxy-tab:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Samsung Galaxy Tab' --headless=true",
+    "test:galaxy-tab:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Samsung Galaxy Tab' --headless=false",
+    
     "test:surface-pro": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Surface Pro'",
+    "test:surface-pro:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Surface Pro' --headless=true",
+    "test:surface-pro:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Surface Pro' --headless=false",
+    
     "test:fire-hd": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Amazon Fire HD 10'",
+    "test:fire-hd:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Amazon Fire HD 10' --headless=true",
+    "test:fire-hd:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-android --device-name 'Amazon Fire HD 10' --headless=false",
+    
     "test:chrome-desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Chrome 1920x1080'",
+    "test:chrome-desktop:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Chrome 1920x1080' --headless=true",
+    "test:chrome-desktop:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Chrome 1920x1080' --headless=false",
+    
     "test:safari-desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Safari 1440x900'",
+    "test:safari-desktop:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Safari 1440x900' --headless=true",
+    "test:safari-desktop:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Safari 1440x900' --headless=false",
+    
     "test:edge-desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Edge 1366x768'",
-    "test:ios-mobile": "npm run test:iphone15 && npm run test:iphone14 && npm run test:iphone13",
-    "test:ios-tablets": "npm run test:ipad-pro && npm run test:ipad-air && npm run test:ipad",
-    "test:android-mobile": "npm run test:galaxy-s24 && npm run test:pixel8 && npm run test:galaxy-s21",
-    "test:android-tablets": "npm run test:galaxy-tab-s9 && npm run test:surface-pro",
-    "test:all-ios": "npm run test:mobile-ios && npm run test:tablet-ios",
-    "test:all-android": "npm run test:mobile-android && npm run test:tablet-android",
-    "test:all-mobile": "npm run test:mobile-ios && npm run test:mobile-android",
-    "test:all-tablets": "npm run test:tablet-ios && npm run test:tablet-android",
-    "test:popular-ios": "npm run test:iphone15 && npm run test:ipad-pro",
-    "test:popular-android": "npm run test:galaxy-s24 && npm run test:pixel8 && npm run test:galaxy-tab-s9",
-    "test:desktop-browsers": "npm run test:chrome-desktop && npm run test:safari-desktop && npm run test:edge-desktop",
-    "cleanup": "bash cleanup.sh",
-    "clean": "rm -rf results/ screenshots/ *.html *.json *.md",
-    "clean:results": "rm -rf results/",
+    "test:edge-desktop:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Edge 1366x768' --headless=true",
+    "test:edge-desktop:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --device-name 'Edge 1366x768' --headless=false",
+    
+    "test:matrix:ios": "npm run test:iphone15:headless && npm run test:iphone14:headless && npm run test:iphone13:headless",
+    "test:matrix:ios:headed": "npm run test:iphone15:headed && npm run test:iphone14:headed && npm run test:iphone13:headed",
+    
+    "test:matrix:ios-tablets": "npm run test:ipad-pro:headless && npm run test:ipad-air:headless && npm run test:ipad:headless",
+    "test:matrix:ios-tablets:headed": "npm run test:ipad-pro:headed && npm run test:ipad-air:headed && npm run test:ipad:headed",
+    
+    "test:matrix:android": "npm run test:galaxy-s24:headless && npm run test:pixel8:headless && npm run test:galaxy-s21:headless",
+    "test:matrix:android:headed": "npm run test:galaxy-s24:headed && npm run test:pixel8:headed && npm run test:galaxy-s21:headed",
+    
+    "test:matrix:android-tablets": "npm run test:galaxy-tab-s9:headless && npm run test:surface-pro:headless",
+    "test:matrix:android-tablets:headed": "npm run test:galaxy-tab-s9:headed && npm run test:surface-pro:headed",
+    
+    "test:matrix:mobile": "npm run test:mobile-ios:headless && npm run test:mobile-android:headless",
+    "test:matrix:mobile:headed": "npm run test:mobile-ios:headed && npm run test:mobile-android:headed",
+    
+    "test:matrix:tablets": "npm run test:tablet-ios:headless && npm run test:tablet-android:headless",
+    "test:matrix:tablets:headed": "npm run test:tablet-ios:headed && npm run test:tablet-android:headed",
+    
+    "test:matrix:platforms": "npm run test:desktop:headless && npm run test:mobile:headless && npm run test:tablet:headless",
+    "test:matrix:platforms:headed": "npm run test:desktop:headed && npm run test:mobile:headed && npm run test:tablet:headed",
+    
+    "test:matrix:browsers": "npm run test:chrome-desktop:headless && npm run test:safari-desktop:headless && npm run test:edge-desktop:headless",
+    "test:matrix:browsers:headed": "npm run test:chrome-desktop:headed && npm run test:safari-desktop:headed && npm run test:edge-desktop:headed",
+    
+    "test:matrix:popular": "npm run test:iphone15:headless && npm run test:galaxy-s24:headless && npm run test:ipad-pro:headless && npm run test:galaxy-tab-s9:headless",
+    "test:matrix:popular:headed": "npm run test:iphone15:headed && npm run test:galaxy-s24:headed && npm run test:ipad-pro:headed && npm run test:galaxy-tab-s9:headed",
+    
+    "test:matrix:full": "npm run test:matrix:platforms && npm run test:matrix:browsers",
+    "test:matrix:full:headed": "npm run test:matrix:platforms:headed && npm run test:matrix:browsers:headed",
+    
+    "test:parallel": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode parallel",
+    "test:parallel:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode parallel --headless=true",
+    "test:parallel:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode parallel --headless=false",
+    
+    "test:parallel:conservative": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --parallel=true --max-workers=4 --additional-workers=1",
+    "test:parallel:moderate": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --parallel=true --max-workers=8 --additional-workers=2",
+    "test:parallel:aggressive": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --parallel=true --max-workers=16 --additional-workers=4",
+    
+    "test:sequential": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --parallel=false",
+    "test:sequential:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --parallel=false --headless=true",
+    "test:sequential:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --parallel=false --headless=false",
+    
+    "test:parallel:auto": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode auto",
+    "test:parallel:auto:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode auto --headless=true",
+    "test:parallel:auto:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode auto --headless=false",
+    
+    "test:parallel:sequential": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode sequential",
+    "test:parallel:sequential:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode sequential --headless=true",
+    "test:parallel:sequential:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --execution-mode sequential --headless=false",
+    
+    "test:wcag22": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json",
+    "test:wcag22:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json --headless=true",
+    "test:wcag22:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json --headless=false",
+    
+    "test:wcag22:desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --config config.json",
+    "test:wcag22:desktop:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --config config.json --headless=true",
+    "test:wcag22:desktop:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --config config.json --headless=false",
+    
+    "test:wcag22:mobile": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --config config.json",
+    "test:wcag22:mobile:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --config config.json --headless=true",
+    "test:wcag22:mobile:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --config config.json --headless=false",
+    
+    "test:wcag22:tablet": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --config config.json",
+    "test:wcag22:tablet:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --config config.json --headless=true",
+    "test:wcag22:tablet:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --config config.json --headless=false",
+    
+    "test:wcag22:all": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json",
+    "test:wcag22:all:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json --headless=true",
+    "test:wcag22:all:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json --headless=false",
+    
+    "clean": "rm -rf results/ accessibility_results/ screenshots/ *.html *.json *.md",
+    "clean:all": "rm -rf results/ accessibility_results/ screenshots/ __pycache__ .pytest_cache *.html *.json *.md venv/.cache",
+    "clean:results": "rm -rf results/ accessibility_results/",
+    "clean:screenshots": "rm -rf screenshots/",
     "clean:temp": "find . -name '*.DS_Store' -delete && find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true",
-    "view:mobile-ios": "open results/mobile/ios/accessibility_report_mobile_ios.html",
-    "view:mobile-android": "open results/mobile/android/accessibility_report_mobile_android.html",
-    "view:tablet-ios": "open results/tablet/ios/accessibility_report_tablet_ios.html",
-    "view:tablet-android": "open results/tablet/android/accessibility_report_tablet_android.html",
-    "view:desktop": "open results/desktop/accessibility_report_desktop.html"
+    
+    "report": "open results/desktop/accessibility_report_desktop.html",
+    "report:desktop": "open results/desktop/accessibility_report_desktop.html",
+    "report:mobile-ios": "open results/mobile/ios/accessibility_report_mobile_ios.html",
+    "report:mobile-android": "open results/mobile/android/accessibility_report_mobile_android.html",
+    "report:tablet-ios": "open results/tablet/ios/accessibility_report_tablet_ios.html",
+    "report:tablet-android": "open results/tablet/android/accessibility_report_tablet_android.html",
+    
+    "install": "python -m venv venv && source venv/bin/activate && pip install -r requirements.txt && npx playwright install",
+    "install:python": "pip install -r requirements.txt",
+    "install:playwright": "npx playwright install",
+    
+    "verify:wcag22": "echo 'WCAG 2.2 Configuration Verified:' && grep -A 10 'wcag22' config.json",
+    "verify:env": "python --version && pip list | grep -E '(playwright|axe|beautifulsoup4)'",
+    
+    "status": "ls -la results/ accessibility_results/ 2>/dev/null || echo 'No results found'",
+    "cleanup": "bash cleanup.sh",
+    
+    "info": "echo '♿ AI Accessibility Testing Agent v2.0.0 - Desktop, Mobile, Tablet'",
+    "info:usage": "echo '🎯 Quick Start: npm run test:desktop:headed | npm run test:mobile:headed | npm run test:tablet:headed'",
+    "info:headless": "echo '⚡ Headless Mode: npm run test:desktop:headless | npm run test:mobile:headless | npm run test:tablet:headless'",
+    "info:sequential": "echo '🔄 Sequential Mode: npm run test:desktop:sequential | npm run test:mobile:sequential | npm run test:tablet:sequential'",
+    "info:workers": "echo '⚙️ Worker Control: npm run test:parallel:conservative | npm run test:parallel:moderate | npm run test:parallel:aggressive'",
+    "info:wcag": "echo '📋 WCAG 2.2: npm run test:wcag22:all:headed | npm run verify:wcag22'",
+    
+    "help": "npm run info && npm run info:usage && npm run info:headless && npm run info:sequential && npm run info:workers && npm run info:wcag"
   },
-  "keywords": ["accessibility", "testing", "axe-core", "automation", "mobile", "tablet", "wcag"],
-  "author": "Accessibility Testing Agent",
-  "license": "MIT"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0",
+    "python": ">=3.8.0"
+  },
+  "config": {
+    "platforms": {
+      "desktop": "Desktop browsers (1920x1080, 1440x900, 1366x768)",
+      "mobile": "Mobile devices (iOS/Android smartphones)", 
+      "tablet": "Tablet devices (iPad, Android tablets)"
+    },
+    "csvFiles": {
+      "urls_to_test.csv": "Main accessibility testing configuration",
+      "config.json": "WCAG 2.2 compliance settings"
+    },
+    "features": [
+      "AI-Powered Accessibility Analysis",
+      "WCAG 2.2 Compliance Testing",
+      "Multi-Platform Testing (Desktop/Mobile/Tablet)",
+      "Multi-Device Support (iPhone/iPad/Android)",
+      "Axe-Core Integration",
+      "CSV Configuration Management",
+      "Interactive HTML Reports",
+      "Screenshot Capture",
+      "Parallel Test Execution"
+    ],
+    "wcagLevels": ["A", "AA", "AAA"],
+    "supportedDevices": {
+      "ios": ["iPhone 15 Pro", "iPhone 14", "iPhone 13", "iPhone SE", "iPad Pro 12.9", "iPad Air", "iPad", "iPad Mini"],
+      "android": ["Samsung Galaxy S24 Ultra", "Samsung Galaxy S23", "Google Pixel 8", "Google Pixel 7", "Samsung Galaxy Tab S9", "Surface Pro"]
+    }
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  },
+  "python": {
+    "requirements": "requirements.txt",
+    "venv": "venv/",
+    "main": "main_parallel.py"
+  }
 }

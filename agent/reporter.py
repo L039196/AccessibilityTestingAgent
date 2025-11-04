@@ -1,4 +1,5 @@
 import json
+import os
 from typing import List, Dict, Any
 
 class ReportGenerator:
@@ -6,18 +7,30 @@ class ReportGenerator:
     
     def generate_report(self, results: List[Dict[str, Any]], base_url: str, report_format: str, device_type: str = "desktop") -> str:
         """
-        Generates a report in the specified format from a list of page results.
+        Generates and saves a report in the specified format from a list of page results.
         Each result is a dictionary containing the 'url' and 'violations'.
         """
+        # Generate report content
         if report_format == "md":
-            return self._to_markdown(results, base_url, device_type)
+            content = self._to_markdown(results, base_url, device_type)
+            extension = "md"
         elif report_format == "json":
-            return self._to_json(results, base_url, device_type)
+            content = self._to_json(results, base_url, device_type)
+            extension = "json"
         elif report_format == "html":
-            return self._to_html(results, base_url, device_type)
+            content = self._to_html(results, base_url, device_type)
+            extension = "html"
         else:
-            # Default to a simple string representation if format is unknown
-            return str(results)
+            content = str(results)
+            extension = "txt"
+        
+        # Save the report
+        output_dir = f"results/{device_type}"
+        os.makedirs(output_dir, exist_ok=True)
+        filename = f"{output_dir}/accessibility_report.{extension}"
+        self.save_report(content, filename)
+        
+        return content
 
     def _to_markdown(self, results: List[Dict[str, Any]], base_url: str, device_type: str = "desktop") -> str:
         """Formats the report as Markdown."""

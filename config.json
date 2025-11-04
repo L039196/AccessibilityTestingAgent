@@ -5,6 +5,27 @@
     "report_filename": "accessibility_report.html",
     "report_format": "html",
     "results_folder": "results",
+    "parallel": true,
+    "max_workers": 8,
+    "additional_workers_per_device": 2,
+    "max_concurrent_tabs": 6,
+    "max_tabs_per_authentication_group": 4,
+    "parallel_config": {
+        "public_urls_max_tabs": 5,
+        "private_urls_max_tabs": 3,
+        "enable_tab_limit": true,
+        "tab_stability_limit": 6
+    },
+    "timeout_config": {
+        "page_load_timeout_ms": 60000,
+        "page_load_timeout_public_ms": 30000,
+        "queue_join_timeout_public_s": 300,
+        "queue_join_timeout_private_s": 600,
+        "queue_join_timeout_auth_s": 600,
+        "task_cleanup_timeout_s": 10,
+        "queue_get_timeout_s": 1,
+        "post_navigation_delay_ms": 2000
+    },
     "axe_rules": {
         "runOnly": {
             "type": "tag",
@@ -12,6 +33,8 @@
                 "wcag2a",
                 "wcag2aa",
                 "wcag21aa",
+                "wcag22aa",
+                "wcag22a",
                 "best-practice"
             ]
         }

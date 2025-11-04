@@ -1,0 +1,1357 @@
+import asyncio
+import os
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any, Tuple
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from tqdm import tqdm
+
+from .local_analyzer import LocalAnalyzer
+from .reporter import ReportGenerator
+from .crawler import Crawler
+from .auth_manager import UniversalAuthManager
+from .sso_auth_manager import SSOAuthManager
+from .csv_loader import TestConfig
+
+@dataclass
+class Config:
+    """Configuration for the accessibility agent."""
+    base_url: str
+    max_pages: int = 10
+    browser_types: List[str] = field(default_factory=lambda: ['chromium', 'webkit'])
+    device_types: List[str] = field(default_factory=lambda: ['desktop'])
+    report_filename: str = "accessibility_report.md"
+    report_format: str = "md"
+    results_folder: str = "results"
+    axe_rules: Optional[Dict[str, Any]] = None
+    device_profiles: Optional[Dict[str, Any]] = None
+    headless: bool = True
+    parallel: bool = True
+    max_workers: int = 8
+    additional_workers_per_device: int = 2
+    max_concurrent_tabs: int = 6
+    max_tabs_per_authentication_group: int = 4
+    parallel_config: Optional[Dict[str, Any]] = None
+    timeout_config: Optional[Dict[str, Any]] = None
+
+class Agent:
+    """
+    The core accessibility testing agent.
+    It crawls a website, analyzes pages for accessibility issues, and generates a report.
+    """
+    def __init__(self, config: Config, crawler: "Crawler", analyzer: "LocalAnalyzer", reporter: "ReportGenerator", urls_to_test: Optional[List[str]] = None, test_configs: Optional[List[TestConfig]] = None):
+        self.config = config
+        self.crawler = crawler
+        self.analyzer = analyzer
+        self.reporter = reporter
+        self.results: Dict[str, List[Dict[str, Any]]] = {}  # Device type -> results
+        self.pre_defined_urls = urls_to_test
+        self.test_configs = test_configs or []
+        self._current_browser = None  # Store browser reference for cleanup
+        
+        # Initialize SSO Auth Manager if we have test configs with authentication
+        has_auth_configs = any(config.requires_auth for config in self.test_configs)
+        if has_auth_configs:
+            print("🔐 SSO authentication required - initializing SSOAuthManager")
+            self.auth_manager = SSOAuthManager()
+        else:
+            print("🌐 No authentication required - using UniversalAuthManager")
+            self.auth_manager = UniversalAuthManager()
+        
+        # Initialize results for each device type
+        for device_type in self.config.device_types:
+            self.results[device_type] = []
+
+    async def run(self):
+        """
+        Runs the accessibility test suite across different device types with SSO support.
+        """
+        print("Starting Automated Accessibility Test Agent...")
+        
+        async with async_playwright() as p:
+            urls_to_test = self.pre_defined_urls
+            
+            # Handle new test_configs with SSO support
+            if self.test_configs:
+                print(f"Using {len(self.test_configs)} test configurations with SSO support.")
+                await self._run_with_sso_configs(p)
+            elif urls_to_test:
+                print(f"Using {len(urls_to_test)} URLs provided via CSV (legacy mode).")
+                await self._run_legacy_mode(p, urls_to_test)
+            else:
+                # 1. Crawl the website to get all URLs if not provided
+                print("No URLs provided, starting crawler...")
+                urls_to_test = await self._crawl(p)
+                if not urls_to_test:
+                    print("No pages found to test. Exiting.")
+                    return
+                await self._run_legacy_mode(p, urls_to_test)
+
+            # Close main browser if it exists
+            if self._current_browser:
+                print("Closing main browser...")
+                await self._current_browser.close()
+                
+            # Cleanup auth manager
+            await self.auth_manager.cleanup()
+                
+            # 3. Consolidate and save the reports
+            self._save_reports()
+            
+            print("Agent finished.")
+
+    async def _run_with_sso_configs(self, playwright_instance):
+        """Run tests using test configurations with SSO support - like VisualTestingAgent."""
+        # Group test configs by authentication requirement (like VisualTestingAgent)
+        print("\n🔍 Grouping test configurations by authentication requirement...")
+        
+        public_configs = [config for config in self.test_configs if not config.requires_auth]
+        private_configs = [config for config in self.test_configs if config.requires_auth]
+        
+        # Group private configs by MFA template (like VisualTestingAgent)
+        private_groups = {}
+        for config in private_configs:
+            template = config.mfa_template or 'default'
+            if template not in private_groups:
+                private_groups[template] = []
+            private_groups[template].append(config)
+        
+        print(f"📊 Found {len(public_configs)} public URLs and {len(private_configs)} private URLs across {len(private_groups)} authentication groups")
+        
+        # Extract URLs for processing
+        public_urls = [config.url for config in public_configs]
+        
+        # Launch single browser for all device types (like VisualTestingAgent session sharing)
+        print("🚀 Launching shared browser for all device types...")
+        browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+        self._current_browser = browser
+        
+        # Initialize auth manager with shared browser
+        await self.auth_manager.initialize(browser)
+        
+        try:
+            # Process each device type sequentially
+            for device_type in self.config.device_types:
+                print(f"\n=== Testing on {device_type.upper()} devices ===")
+                
+                # Calculate total URLs for progress bar
+                total_urls = len(public_urls) + len(private_configs)
+                
+                with tqdm(total=total_urls, desc=f"Analyzing Pages ({device_type})") as pbar:
+                    # PHASE 1: Process all public URLs first (parallel within group)
+                    if public_urls:
+                        print(f"\n🌐 PHASE 1: Processing {len(public_urls)} public URLs in parallel...")
+                        await self._process_public_urls_for_device(browser, public_urls, device_type, pbar)
+                    
+                    # PHASE 2: Process private URL groups sequentially (parallel within each group)
+                    for template_name, configs in private_groups.items():
+                        private_urls = [config.url for config in configs]
+                        print(f"\n🔐 PHASE 2: Processing {len(private_urls)} private URLs with {template_name} authentication...")
+                        
+                        # Authenticate once for this group
+                        auth_result = await self.auth_manager.authenticate_with_template(template_name)
+                        if auth_result.success:
+                            print(f"✅ Authentication successful for {template_name}")
+                            # Use the authenticated context from the auth result
+                            await self._process_private_urls_for_device_with_auth_context(auth_result.authenticated_context, private_urls, template_name, device_type, pbar)
+                        else:
+                            print(f"❌ Authentication failed for {template_name}: {auth_result.error_message}")
+                            # Skip these URLs but update progress
+                            for _ in private_urls:
+                                pbar.update(1)
+        
+        finally:
+            # Browser will be closed in the main run method
+            pass
+
+    async def _process_public_urls_for_device(self, browser: Browser, public_urls: List[str], device_type: str, pbar: "tqdm"):
+        """Process public URLs in parallel for a device type."""
+        # Create device-specific context
+        context = await self._create_shared_context_for_device(browser, device_type)
+        
+        try:
+            max_concurrent_tabs = self._get_max_tabs_for_urls(len(public_urls), "public")
+            
+            # Create URL queue
+            url_queue = asyncio.Queue()
+            for url in public_urls:
+                await url_queue.put(url)
+            
+            # Create worker tasks
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                worker_name = f"public-tab-{i+1}-{device_type}"
+                task = asyncio.create_task(
+                    self._process_public_url_worker(context, url_queue, device_type, pbar, worker_name)
+                )
+                tasks.append(task)
+            
+            print(f"🚀 Running {len(public_urls)} public URLs across {max_concurrent_tabs} tabs...")
+            
+            # Wait for completion
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("public"))
+                print(f"✅ All public URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Public URL processing timed out")
+            
+            # Cancel remaining tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except:
+                pass
+                
+        finally:
+            await context.close()
+            print(f"✅ Public URLs browser context closed for {device_type}")
+
+    async def _process_private_urls_for_device(self, browser: Browser, private_urls: List[str], template_name: str, device_type: str, pbar: "tqdm"):
+        """Process private URLs in parallel for a device type using authenticated session."""
+        # Create device-specific context (will inherit authentication from browser)
+        context = await self._create_shared_context_for_device(browser, device_type)
+        
+        try:
+            max_concurrent_tabs = self._get_max_tabs_for_urls(len(private_urls), "private")
+            
+            # Create URL queue
+            url_queue = asyncio.Queue()
+            for url in private_urls:
+                await url_queue.put(url)
+            
+            # Create worker tasks
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                worker_name = f"private-tab-{i+1}-{device_type}"
+                task = asyncio.create_task(
+                    self._process_private_url_worker(context, url_queue, template_name, device_type, pbar, worker_name)
+                )
+                tasks.append(task)
+            
+            print(f"🚀 Running {len(private_urls)} private URLs across {max_concurrent_tabs} authenticated tabs...")
+            
+            # Wait for completion
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("private"))
+                print(f"✅ All private URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Private URL processing timed out")
+            
+            # Cancel remaining tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except:
+                pass
+                
+        finally:
+            await context.close()
+            print(f"✅ Private URLs browser context closed for {device_type}")
+
+    async def _process_public_url_worker(self, context: BrowserContext, url_queue: asyncio.Queue, device_type: str, pbar: "tqdm", worker_name: str):
+        """Worker for processing public URLs."""
+        print(f"[{worker_name}] 🚀 Worker started")
+        while True:
+            try:
+                url = await asyncio.wait_for(url_queue.get(), timeout=self._get_queue_get_timeout())
+                
+                try:
+                    print(f"[{worker_name}] 🌐 Creating new page for: {url}")
+                    page = await context.new_page()
+                    
+                    print(f"[{worker_name}] 🚀 Navigating to: {url}")
+                    await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("public"))
+                    
+                    print(f"[{worker_name}] 🔍 Starting analysis for: {url}")
+                    await self._analyze_single_page_with_auth(page, url, device_type, auth_required=False, worker_name=worker_name)
+                    
+                    print(f"[{worker_name}] ✅ Closing page for: {url}")
+                    await page.close()
+                    
+                except Exception as e:
+                    print(f"❌ [{worker_name}] Error processing public URL {url}: {e}")
+                    import traceback
+                    print(f"❌ [{worker_name}] Traceback: {traceback.format_exc()}")
+                finally:
+                    pbar.update(1)
+                    url_queue.task_done()
+                    
+            except asyncio.TimeoutError:
+                print(f"[{worker_name}] ⏰ Timeout waiting for URLs - worker finishing")
+                break
+            except Exception as e:
+                print(f"❌ [{worker_name}] Worker error: {e}")
+                break
+        print(f"[{worker_name}] 🏁 Worker finished")
+
+    async def _process_private_url_worker(self, context: BrowserContext, url_queue: asyncio.Queue, template_name: str, device_type: str, pbar: "tqdm", worker_name: str):
+        """Worker for processing private URLs with authentication."""
+        while True:
+            try:
+                url = await asyncio.wait_for(url_queue.get(), timeout=self._get_queue_get_timeout())
+                
+                try:
+                    page = await context.new_page()
+                    # Navigate with session preservation (like VisualTestingAgent)
+                    await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("private"))
+                    
+                    # Wait for potential OAuth redirects to complete
+                    await asyncio.sleep(self._get_post_navigation_delay())
+                    
+                    await self._analyze_single_page_with_auth(page, url, device_type, auth_required=True, template_name=template_name, worker_name=worker_name)
+                    await page.close()
+                    
+                except Exception as e:
+                    print(f"❌ Error processing private URL {url} in {worker_name}: {e}")
+                finally:
+                    pbar.update(1)
+                    url_queue.task_done()
+                    
+            except asyncio.TimeoutError:
+                break
+            except Exception as e:
+                print(f"❌ Worker {worker_name} error: {e}")
+                break
+
+    async def _run_separated_url_processing(self, playwright_instance, public_urls: List[str], private_url_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Process public URLs first, then private URLs with separate browser sessions."""
+        
+        # PHASE 1: Process all public URLs first
+        if public_urls:
+            print(f"\n🌐 PHASE 1: Processing {len(public_urls)} public URLs in parallel...")
+            
+            # Launch browser for public URLs
+            public_browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+            
+            try:
+                # Create context for public URLs
+                public_context = await self._create_shared_context_for_device(public_browser, device_type)
+                
+                # Process public URLs in parallel
+                await self._process_public_urls_parallel(public_context, public_urls, device_type, pbar)
+                
+                # Close public context and browser
+                await public_context.close()
+                print("✅ Public URL processing completed - browser closed")
+                
+            finally:
+                await public_browser.close()
+        
+        # PHASE 2: Process private URLs with SSO authentication
+        if private_url_groups:
+            print(f"\n🔐 PHASE 2: Processing private URLs with SSO authentication...")
+            
+            # Launch browser for private URLs
+            private_browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+            self._current_browser = private_browser
+            
+            try:
+                # Initialize auth manager with private browser
+                await self.auth_manager.initialize(private_browser)
+                
+                # Pre-authenticate with all required templates
+                for template_name in private_url_groups.keys():
+                    print(f"\n🔐 Authenticating with {template_name}...")
+                    auth_result = await self.auth_manager.authenticate_with_template(template_name)
+                    if not auth_result.success:
+                        print(f"❌ Authentication failed for {template_name}: {auth_result.error_message}")
+                
+                # Process private URLs in parallel using authenticated session
+                await self._process_private_urls_parallel(private_browser, private_url_groups, device_type, pbar)
+                
+                print("✅ Private URL processing completed - authenticated session maintained")
+                
+            finally:
+                await private_browser.close()
+                print("✅ Private browser session closed")
+
+    async def _process_public_urls_parallel(self, context: BrowserContext, public_urls: List[str], device_type: str, pbar: "tqdm"):
+        """Process public URLs in parallel using shared context."""
+        max_concurrent_tabs = self._get_max_tabs_for_urls(len(public_urls), "public")
+        
+        # Create URL queue
+        url_queue = asyncio.Queue()
+        for url in public_urls:
+            await url_queue.put(url)
+        
+        # Create worker tasks
+        tasks = []
+        for i in range(max_concurrent_tabs):
+            worker_name = f"public-worker-{i+1}-{device_type}"
+            task = asyncio.create_task(
+                self._process_public_url_worker(context, url_queue, device_type, pbar, worker_name)
+            )
+            tasks.append(task)
+        
+        print(f"🚀 Processing public URLs across {max_concurrent_tabs} tabs...")
+        
+        # Wait for completion
+        try:
+            await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("public"))
+            print(f"✅ All public URLs processed for {device_type}")
+        except asyncio.TimeoutError:
+            print("⚠️ Warning: Public URL processing timed out")
+        
+        # Cancel remaining tasks
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except:
+            pass
+
+    async def _process_private_urls_parallel(self, browser: Browser, private_url_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Process private URLs in parallel using authenticated browser."""
+        # Create device-specific context for private URLs
+        private_context = await self._create_shared_context_for_device(browser, device_type)
+        
+        try:
+            # Collect all private URLs
+            all_private_urls = []
+            for template_name, urls in private_url_groups.items():
+                for url in urls:
+                    all_private_urls.append((template_name, url))
+            
+            max_concurrent_tabs = self._get_max_tabs_for_urls(len(all_private_urls), "private")
+            
+            # Create URL queue
+            url_queue = asyncio.Queue()
+            for template_name, url in all_private_urls:
+                await url_queue.put((template_name, url))
+            
+            # Create worker tasks
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                worker_name = f"private-worker-{i+1}-{device_type}"
+                task = asyncio.create_task(
+                    self._process_private_url_worker(private_context, url_queue, device_type, pbar, worker_name)
+                )
+                tasks.append(task)
+            
+            print(f"🚀 Processing private URLs across {max_concurrent_tabs} authenticated tabs...")
+            
+            # Wait for completion
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("private"))
+                print(f"✅ All private URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Private URL processing timed out")
+            
+            # Cancel remaining tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except:
+                pass
+                
+        finally:
+            await private_context.close()
+
+    async def _run_tests_with_sso_for_device_type_shared(self, browser: Browser, public_urls: List[str], private_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Run tests for a device type using shared authenticated browser."""
+        if self.config.parallel:
+            await self._run_parallel_tests_with_sso_shared(browser, public_urls, private_groups, device_type, pbar)
+        else:
+            await self._run_sequential_tests_with_sso_shared(browser, public_urls, private_groups, device_type, pbar)
+
+    async def _run_parallel_tests_with_sso_shared(self, browser: Browser, public_urls: List[str], private_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Run tests in parallel with shared SSO browser."""
+        print(f"🚀 Running tests in parallel for {device_type} with shared SSO browser...")
+        
+        try:
+            # Create device-specific context
+            context = await self._create_shared_context_for_device(browser, device_type)
+            
+            # Create URL processing queue
+            url_queue = asyncio.Queue()
+            
+            # Add public URLs to queue
+            for url in public_urls:
+                await url_queue.put(('public', url))
+            
+            # Add private URLs to queue (authentication already done)
+            for template_name, urls in private_groups.items():
+                for url in urls:
+                    await url_queue.put((template_name, url))
+            
+            # Determine number of concurrent tabs
+            max_concurrent_tabs = self._get_max_tabs_for_urls(url_queue.qsize())
+            
+            # Create worker tasks for processing URLs
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                task = asyncio.create_task(
+                    self._process_url_queue_with_shared_auth(url_queue, device_type, pbar, f"tab-worker-{i+1}-{device_type}", context)
+                )
+                tasks.append(task)
+            
+            print(f"🚀 Running tests across {max_concurrent_tabs} tabs with shared SSO...")
+
+            # Wait for all URLs to be processed
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("auth"))  # 10 minute timeout
+                print(f"✅ All URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Queue processing timed out after 10 minutes")
+
+            # Cancel remaining tasks and cleanup
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for task cleanup
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=self._get_task_cleanup_timeout())
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Task cleanup timed out")
+
+            # Close the device context
+            try:
+                await context.close()
+                print(f"✅ Device context closed for {device_type}")
+            except Exception as e:
+                print("⚠️ Warning: Error closing context: {e}")
+        
+        except Exception as e:
+            print(f"❌ Error in shared SSO testing for {device_type}: {e}")
+
+    async def _run_sequential_tests_with_sso_shared(self, browser: Browser, public_urls: List[str], private_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Run tests sequentially with shared SSO browser."""
+        print(f"🔄 Running tests sequentially for {device_type} with shared SSO...")
+        
+        try:
+            # Create device-specific context
+            context = await self._create_shared_context_for_device(browser, device_type)
+            
+            # Process public URLs
+            for url in public_urls:
+                try:
+                    page = await context.new_page()
+                    await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("public"))
+                    await self._analyze_single_page_with_auth(page, url, device_type, auth_required=False)
+                    await page.close()
+                except Exception as e:
+                    print(f"❌ Error processing public URL {url}: {e}")
+                finally:
+                    pbar.update(1)
+            
+            # Process private URL groups (using shared authentication)
+            for template_name, urls in private_groups.items():
+                print(f"\n🔐 Processing {len(urls)} URLs with shared {template_name} authentication...")
+                
+                for url in urls:
+                    try:
+                        page = await context.new_page()
+                        await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("private"))
+                        await self._analyze_single_page_with_auth(page, url, device_type, auth_required=True, template_name=template_name)
+                        await page.close()
+                    except Exception as e:
+                        print(f"❌ Error processing private URL {url}: {e}")
+                    finally:
+                        pbar.update(1)
+            
+            # Close device context
+            await context.close()
+            print(f"✅ Device context closed for {device_type}")
+            
+        except Exception as e:
+            print(f"❌ Error in sequential shared SSO testing: {e}")
+
+    async def _process_url_queue_with_shared_auth(self, url_queue: asyncio.Queue, device_type: str, pbar: "tqdm", worker_name: str, context: BrowserContext):
+        """Process URLs from queue with shared authentication context."""
+        while True:
+            try:
+                # Get URL from queue with timeout
+                auth_type, url = await asyncio.wait_for(url_queue.get(), timeout=self._get_queue_get_timeout())
+                
+                try:
+                    # Use shared context for all pages
+                    page = await context.new_page()
+                    await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout(auth_type))
+                    
+                    auth_required = auth_type != 'public'
+                    template_name = auth_type if auth_required else None
+                    
+                    await self._analyze_single_page_with_auth(page, url, device_type, auth_required=auth_required, template_name=template_name, worker_name=worker_name)
+                    await page.close()
+                    
+                except Exception as e:
+                    print(f"❌ Error processing URL {url} in {worker_name}: {e}")
+                finally:
+                    pbar.update(1)
+                    url_queue.task_done()
+                    
+            except asyncio.TimeoutError:
+                # No more URLs in queue
+                break
+            except Exception as e:
+                print(f"❌ Worker {worker_name} error: {e}")
+                break
+
+    async def _run_legacy_mode(self, playwright_instance, urls_to_test: List[str]):
+        """Run tests in legacy mode without SSO (for backward compatibility)."""
+        print(f"\n🔄 Running in legacy mode with {len(urls_to_test)} URLs...")
+        
+        # Use legacy URL categorization if available in auth_manager
+        if hasattr(self.auth_manager, 'categorize_urls'):
+            print("\n🔍 Categorizing URLs for authentication...")
+            public_urls, private_groups = self.auth_manager.categorize_urls(urls_to_test)
+        else:
+            # Fallback: treat all URLs as public
+            public_urls = urls_to_test
+            private_groups = {}
+
+        # Run tests for each device type
+        for device_type in self.config.device_types:
+            print(f"\n=== Testing on {device_type.upper()} devices ===")
+            
+            # Calculate total URLs for progress bar
+            total_urls = len(public_urls) + sum(len(urls) for urls in private_groups.values())
+            
+            # Add progress bar
+            with tqdm(total=total_urls, desc=f"Analyzing Pages ({device_type})") as pbar:
+                if private_groups:
+                    # Run with SSO support if private URLs detected
+                    await self._run_tests_with_sso_for_device_type(playwright_instance, public_urls, private_groups, device_type, pbar)
+                else:
+                    # Run without SSO for all public URLs
+                    await self._run_tests_for_device_type(playwright_instance, urls_to_test, device_type, pbar)
+
+    async def _crawl(self, playwright_instance) -> List[str]:
+        """Crawl the website to find all pages to test."""
+        print("Launching crawler browser...")
+        crawler_browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+        page = await crawler_browser.new_page()
+        try:
+            urls = await self.crawler.crawl(page)
+            print(f"\nFound {len(urls)} pages to test.")
+            return urls
+        finally:
+            await page.close()
+            await crawler_browser.close()
+            print("Crawler browser closed.")
+
+    async def _run_tests_with_sso_for_device_type(self, playwright_instance, public_urls: List[str], private_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Run tests for a device type with SSO authentication support."""
+        if self.config.parallel:
+            await self._run_parallel_tests_with_sso(playwright_instance, public_urls, private_groups, device_type, pbar)
+        else:
+            await self._run_sequential_tests_with_sso(playwright_instance, public_urls, private_groups, device_type, pbar)
+
+    async def _run_parallel_tests_with_sso(self, playwright_instance, public_urls: List[str], private_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Run tests in parallel with SSO support (single browser, multiple tabs)."""
+        print(f"🚀 Running tests in parallel for {device_type} with SSO support...")
+        
+        try:
+            # Launch single browser for all tests
+            browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+            self._current_browser = browser
+            
+            # Initialize auth manager with browser
+            await self.auth_manager.initialize(browser)
+            
+            # Create shared context for the device
+            context = await self._create_shared_context_for_device(browser, device_type)
+            
+            # Create URL processing queue
+            url_queue = asyncio.Queue()
+            
+            # Add public URLs to queue
+            for url in public_urls:
+                await url_queue.put(('public', url))
+            
+            # Process private URL groups (authenticate once per group)
+            for template_name, urls in private_groups.items():
+                print(f"\n🔐 Authenticating with {template_name} for {len(urls)} URLs...")
+                auth_result = await self.auth_manager.authenticate_with_template(template_name)
+                
+                if auth_result.success:
+                    print(f"✅ Authentication successful for {template_name}")
+                    for url in urls:
+                        await url_queue.put((template_name, url))
+                else:
+                    print(f"❌ Authentication failed for {template_name}: {auth_result.error_message}")
+                    # Skip these URLs
+                    for url in urls:
+                        pbar.update(1)  # Update progress bar for skipped URLs
+            
+            # Determine number of concurrent tabs
+            max_concurrent_tabs = self._get_max_tabs_for_urls(url_queue.qsize())
+            
+            # Create worker tasks for processing URLs
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                task = asyncio.create_task(
+                    self._process_url_queue_with_auth(url_queue, device_type, pbar, f"tab-worker-{i+1}-{device_type}")
+                )
+                tasks.append(task)
+            
+            print(f"🚀 Running tests across {max_concurrent_tabs} tabs with SSO support...")
+
+            # Wait for all URLs to be processed
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("auth"))  # 10 minute timeout for auth
+                print(f"✅ All URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Queue processing timed out after 10 minutes")
+
+            # Cancel remaining tasks and cleanup
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for task cleanup
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=self._get_task_cleanup_timeout())
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Task cleanup timed out")
+
+            # Close the shared context
+            try:
+                await context.close()
+                print(f"✅ Shared context closed for {device_type}")
+            except Exception as e:
+                print(f"⚠️ Warning: Error closing context: {e}")
+        
+        except Exception as e:
+            print(f"❌ Error creating shared context: {e}")
+        finally:
+            # Close the browser
+            try:
+                await browser.close()
+                print(f"✅ Browser closed for {device_type}")
+            except Exception as e:
+                print(f"⚠️ Warning: Error closing browser: {e}")
+
+    async def _run_sequential_tests_with_sso(self, playwright_instance, public_urls: List[str], private_groups: Dict[str, List[str]], device_type: str, pbar: "tqdm"):
+        """Run tests sequentially with SSO support."""
+        print(f"🔄 Running tests sequentially for {device_type} with SSO support...")
+        
+        try:
+            # Launch single browser
+            browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+            self._current_browser = browser
+            
+            # Initialize auth manager with browser
+            await self.auth_manager.initialize(browser)
+            
+            # Process public URLs first
+            for url in public_urls:
+                try:
+                    page, auth_required = await self.auth_manager.navigate_with_auth(url)
+                    if page:
+                        await self._analyze_single_page_with_auth(page, url, device_type, auth_required=False)
+                        await page.close()
+                except Exception as e:
+                    print(f"❌ Error processing public URL {url}: {e}")
+                finally:
+                    pbar.update(1)
+            
+            # Process private URL groups
+            for template_name, urls in private_groups.items():
+                print(f"\n🔐 Processing {len(urls)} URLs with {template_name} authentication...")
+                
+                for url in urls:
+                    try:
+                        page, auth_required = await self.auth_manager.navigate_with_auth(url)
+                        if page:
+                            await self._analyze_single_page_with_auth(page, url, device_type, auth_required=True, template_name=template_name)
+                            await page.close()
+                        else:
+                            print(f"❌ Failed to access authenticated URL: {url}")
+                    except Exception as e:
+                        print(f"❌ Error processing private URL {url}: {e}")
+                    finally:
+                        pbar.update(1)
+            
+        except Exception as e:
+            print(f"❌ Error in sequential SSO testing: {e}")
+        finally:
+            try:
+                await browser.close()
+                print(f"✅ Browser closed for {device_type}")
+            except Exception as e:
+                print(f"⚠️ Warning: Error closing browser: {e}")
+
+    async def _process_url_queue_with_auth(self, url_queue: asyncio.Queue, device_type: str, pbar: "tqdm", worker_name: str):
+        """Process URLs from queue with authentication support."""
+        while True:
+            try:
+                # Get URL from queue with timeout
+                auth_type, url = await asyncio.wait_for(url_queue.get(), timeout=self._get_queue_get_timeout())
+                
+                try:
+                    if auth_type == 'public':
+                        # Public URL - use regular navigation
+                        page, auth_required = await self.auth_manager.navigate_with_auth(url)
+                        if page:
+                            await self._analyze_single_page_with_auth(page, url, device_type, auth_required=False, worker_name=worker_name)
+                            await page.close()
+                    else:
+                        # Private URL - use authenticated navigation
+                        page = await self.auth_manager.create_authenticated_page(auth_type)
+                        if page:
+                            await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("private"))
+                            await self._analyze_single_page_with_auth(page, url, device_type, auth_required=True, template_name=auth_type, worker_name=worker_name)
+                            await page.close()
+                        else:
+                            print(f"❌ Failed to create authenticated page for {url}")
+                    
+                except Exception as e:
+                    print(f"❌ Error processing URL {url} in {worker_name}: {e}")
+                finally:
+                    pbar.update(1)
+                    url_queue.task_done()
+                    
+            except asyncio.TimeoutError:
+                # No more URLs in queue
+                break
+            except Exception as e:
+                print(f"❌ Worker {worker_name} error: {e}")
+                break
+
+    async def _analyze_single_page_with_auth(self, page: Page, url: str, device_type: str, auth_required: bool = False, template_name: str = None, worker_name: str = None):
+        """Analyze a single page with authentication context information."""
+        try:
+            # Use the existing analyzer with proper parameters
+            violations = await self.analyzer.analyze_page(page, url, device_type)
+            
+            # Add authentication metadata to violations
+            for violation in violations:
+                violation['auth_required'] = auth_required
+                violation['auth_template'] = template_name
+                violation['worker'] = worker_name
+            
+            # Create page result in the format expected by reporter
+            page_result = {
+                'url': url,
+                'violations': violations,
+                'auth_required': auth_required,
+                'auth_template': template_name,
+                'worker': worker_name,
+                'device_type': device_type,
+                'timestamp': violations[0].get('timestamp', '') if violations else '',
+                'total_violations': len(violations)
+            }
+            
+            # Store results for this device type
+            self.results[device_type].append(page_result)
+            
+            if worker_name:
+                print(f"✅ {worker_name}: Analyzed {url} - Found {len(violations)} violations (auth: {auth_required})")
+            else:
+                print(f"✅ Analyzed {url} - Found {len(violations)} violations (auth: {auth_required})")
+                
+        except Exception as e:
+            print(f"❌ Error analyzing page {url}: {e}")
+            # Add error record
+            error_result = {
+                'url': url,
+                'error': str(e),
+                'auth_required': auth_required,
+                'auth_template': template_name,
+                'worker': worker_name,
+                'violations': [],
+                'device_type': device_type,
+                'total_violations': 0
+            }
+            self.results[device_type].append(error_result)
+
+    async def _run_tests_for_device_type(self, playwright_instance, urls: List[str], device_type: str, pbar: "tqdm"):
+        """Launch browsers and run tests for a specific device type (parallel or sequential)."""
+        if self.config.parallel:
+            await self._run_tests_parallel(playwright_instance, urls, device_type, pbar)
+        else:
+            await self._run_tests_sequential(playwright_instance, urls, device_type, pbar)
+
+    async def _run_tests_parallel(self, playwright_instance, urls: List[str], device_type: str, pbar: "tqdm"):
+        """Launch a single browser and run tests in parallel using multiple tabs in shared context."""
+        print(f"Setting up parallel testing for {device_type} with {len(urls)} URLs...")
+        
+        # Launch single browser instance
+        preferred_browser = 'chromium'
+        try:
+            browser = await getattr(playwright_instance, preferred_browser).launch(
+                headless=self.config.headless,
+                args=['--disable-features=VizDisplayCompositor'] if not self.config.headless else []
+            )
+            self._current_browser = browser
+            print(f"✅ Browser launched successfully for {device_type}")
+        except Exception as e:
+            print(f"❌ Failed to launch browser: {e}")
+            return
+
+        # Create single shared context for this device type
+        try:
+            context = await self._create_shared_context_for_device(browser, device_type)
+            if not context:
+                print(f"❌ Failed to create shared context for {device_type}. Skipping.")
+                await browser.close()
+                return
+            
+            print(f"✅ Created shared browser context for {device_type}")
+            
+            # Calculate number of concurrent tabs based on config (limit to prevent resource issues)
+            max_concurrent_tabs = self._get_max_tabs_for_urls(len(urls))
+            print(f"🔄 Using {max_concurrent_tabs} concurrent tabs for parallel testing")
+
+            # Create URL queue for workers
+            url_queue = asyncio.Queue()
+            for url in urls:
+                await url_queue.put(url)
+
+            # Create worker tasks - each gets a new tab in the shared context
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                worker_name = f"tab-worker-{i+1}-{device_type}"
+                task = asyncio.create_task(
+                    self._tab_worker_with_shared_context(worker_name, context, device_type, url_queue, pbar)
+                )
+                tasks.append(task)
+
+            print(f"🚀 Running {len(urls)} tests across {max_concurrent_tabs} tabs...")
+
+            # Wait for all URLs to be processed
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("public"))  # 5 minute timeout
+                print(f"✅ All URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Queue processing timed out after 5 minutes")
+
+            # Cancel remaining tasks and cleanup
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for task cleanup
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=self._get_task_cleanup_timeout())
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Task cleanup timed out")
+
+            # Close the shared context
+            try:
+                await context.close()
+                print(f"✅ Shared context closed for {device_type}")
+            except Exception as e:
+                print(f"⚠️ Warning: Error closing context: {e}")
+        
+        except Exception as e:
+            print(f"❌ Error creating shared context: {e}")
+        finally:
+            # Close the browser
+            try:
+                await browser.close()
+                print(f"✅ Browser closed for {device_type}")
+            except Exception as e:
+                print(f"⚠️ Warning: Error closing browser: {e}")
+
+    async def _create_shared_context_for_device(self, browser, device_type: str):
+        """Create a single shared context for the device type (like VisualTestingAgent)."""
+        # Parse device type to determine form factor and platform
+        if device_type.startswith('mobile-'):
+            form_factor = 'mobile'
+            platform = device_type.replace('mobile-', '')
+        elif device_type.startswith('tablet-'):
+            form_factor = 'tablet'
+            platform = device_type.replace('tablet-', '')
+        else:
+            # Desktop case
+            form_factor = device_type
+            platform = None
+            
+        # Get device profiles
+        if platform and self.config.device_profiles:
+            device_profiles = self.config.device_profiles.get(form_factor, {}).get(platform, {})
+        elif self.config.device_profiles:
+            device_profiles = self.config.device_profiles.get(form_factor, {})
+        else:
+            # Fallback if no device profiles are configured
+            device_profiles = {"default": {}}
+        
+        if not device_profiles:
+            print(f"No device profiles found for {device_type}.")
+            return None
+
+        # Use the first device profile for the shared context
+        first_device_name, first_device_config = next(iter(device_profiles.items()))
+        
+        try:
+            print(f"Creating shared context for {first_device_name}...")
+            # Convert device config to Playwright format
+            playwright_config = self._convert_device_config(first_device_config)
+            context = await browser.new_context(**playwright_config)
+            print(f"✅ Shared context created for {first_device_name}")
+            return context
+        except Exception as e:
+            print(f"❌ Could not create shared context for {first_device_name}: {e}")
+            return None
+
+    async def _tab_worker_with_shared_context(self, worker_name: str, context, device_type: str, url_queue: asyncio.Queue, pbar: "tqdm"):
+        """A worker that processes URLs from a queue using tabs in shared context (like VisualTestingAgent)."""
+        print(f"[{worker_name}] 🚀 Starting tab worker...")
+        
+        page = None  # Initialize page variable
+        
+        try:
+            # Create a new page (tab) in the shared context
+            page = await context.new_page()
+            print(f"[{worker_name}] 📄 Created new tab in shared context")
+        except Exception as e:
+            print(f"[{worker_name}] ❌ Failed to create tab: {e}")
+            return
+        
+        try:
+            processed_count = 0
+            while True:
+                try:
+                    # Get URL from queue with timeout to avoid infinite loop
+                    url = await asyncio.wait_for(url_queue.get(), timeout=self._get_queue_get_timeout())
+                    print(f"[{worker_name}] 🔍 Testing ({processed_count + 1}): {url}")
+                    
+                    # Navigate to the page
+                    await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("public"))
+                    
+                    # Run accessibility analysis with limited retries
+                    try:
+                        issues = await self.analyzer.find_issues(page, device_type, f"{worker_name}")
+                        
+                        # Store result
+                        self.results[device_type].append({
+                            'url': url,
+                            'device': worker_name,
+                            'violations': issues,  # ✅ Fixed: Use 'violations' key that reporter expects
+                            'issues': issues,      # Keep for backward compatibility
+                            'analysis': {'violations': issues}
+                        })
+                        
+                        print(f"[{worker_name}] ✅ Completed ({processed_count + 1}): {url}")
+                        processed_count += 1
+                        
+                    except Exception as analysis_error:
+                        print(f"[{worker_name}] ⚠️ Analysis failed for {url}: {analysis_error}")
+                        # Still count as processed to avoid infinite loops
+                        processed_count += 1
+                    
+                    pbar.update(1)
+                    url_queue.task_done()
+                    
+                except asyncio.TimeoutError:
+                    # No more items in queue, worker can exit
+                    print(f"[{worker_name}] 🏁 No more work available, processed {processed_count} URLs")
+                    break
+                except asyncio.CancelledError:
+                    print(f"[{worker_name}] 🛑 Worker cancelled after processing {processed_count} URLs")
+                    break
+                except Exception as e:
+                    print(f"[{worker_name}] ❌ Error processing URL: {e}")
+                    pbar.update(1)
+                    url_queue.task_done()
+                    processed_count += 1
+                    
+                    # Break after too many errors to prevent infinite loops
+                    if processed_count > len(self.config.device_types) * 10:  # Safety limit
+                        print(f"[{worker_name}] 🚨 Too many errors, stopping worker")
+                        break
+                        
+        except Exception as worker_error:
+            print(f"[{worker_name}] 💥 Worker crashed: {worker_error}")
+        finally:
+            # CRITICAL: Always close the page/tab
+            if page:
+                try:
+                    await page.close()
+                    print(f"[{worker_name}] 🗑️ Tab closed successfully")
+                except Exception as e:
+                    print(f"[{worker_name}] ⚠️ Error closing tab: {e}")
+            else:
+                print(f"[{worker_name}] ⚠️ No page to close")
+            
+            print(f"[{worker_name}] 🏁 Worker finished")
+
+    async def _run_tests_sequential(self, playwright_instance, urls: List[str], device_type: str, pbar: "tqdm"):
+        """Run tests sequentially for a specific device type (one browser with sequential processing)."""
+        print(f"Running sequential tests for {device_type}...")
+        
+        # Launch single browser instance
+        preferred_browser = 'chromium'
+        try:
+            browser = await getattr(playwright_instance, preferred_browser).launch(headless=self.config.headless)
+            print(f"Browser launched for sequential testing on {device_type}")
+        except Exception as e:
+            print(f"Failed to launch browser: {e}")
+            return
+        
+        # Get device profiles for this device type
+        if device_type.startswith('mobile-'):
+            form_factor = 'mobile'
+            platform = device_type.replace('mobile-', '')
+        elif device_type.startswith('tablet-'):
+            form_factor = 'tablet'
+            platform = device_type.replace('tablet-', '')
+        else:
+            form_factor = device_type
+            platform = None
+            
+        # Get device profiles
+        if platform and self.config.device_profiles:
+            device_profiles = self.config.device_profiles.get(form_factor, {}).get(platform, {})
+        elif self.config.device_profiles:
+            device_profiles = self.config.device_profiles.get(form_factor, {})
+        else:
+            # Fallback if no device profiles are configured
+            device_profiles = {"default": {}}
+        
+        if not device_profiles:
+            print(f"No device profiles found for {device_type}. Skipping.")
+            await browser.close()
+            return
+            
+        try:
+            # Process each device sequentially
+            for device_name, device_config in device_profiles.items():
+                print(f"Testing on {device_name}...")
+                
+                # Create context for this device
+                playwright_config = self._convert_device_config(device_config)
+                context = await browser.new_context(**playwright_config)
+                
+                # Test all URLs on this device
+                for url in urls:
+                    try:
+                        await self._test_single_url_with_context(context, device_config, device_type, url, device_name)
+                        pbar.update(1)
+                    except Exception as e:
+                        print(f"Error testing {url} on {device_name}: {e}")
+                        pbar.update(1)
+                
+                # Close context after testing all URLs for this device
+                await context.close()
+                print(f"Completed testing on {device_name}")
+                
+        finally:
+            await browser.close()
+            print(f"Browser closed for {device_type}")
+
+    async def _test_single_url_with_context(self, context, device_config, device_type: str, url: str, device_name: str):
+        """Test a single URL using an existing context."""
+        print(f"Testing page: {url} on {device_name}")
+        
+        page = await context.new_page()
+        
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=self._get_page_load_timeout("public"))
+            
+            # Run accessibility analysis
+            issues = await self.analyzer.find_issues(page, device_type, device_name)
+            
+            # Store result
+            self.results[device_type].append({
+                'url': url,
+                'device': device_name,
+                'violations': issues,  # ✅ Fixed: Use 'violations' key that reporter expects
+                'issues': issues,      # Keep for backward compatibility
+                'analysis': {'violations': issues}
+            })
+            
+        except Exception as e:
+            print(f"Error analyzing {url} on {device_name}: {e}")
+        finally:
+            await page.close()
+
+
+    def _convert_device_config(self, device_config: dict) -> dict:
+        """Convert device config from JSON format to Playwright format."""
+        playwright_config = {}
+        
+        # Map the config parameters to Playwright format
+        if 'viewport' in device_config:
+            playwright_config['viewport'] = device_config['viewport']
+        if 'userAgent' in device_config:
+            playwright_config['user_agent'] = device_config['userAgent']
+        if 'deviceScaleFactor' in device_config:
+            playwright_config['device_scale_factor'] = device_config['deviceScaleFactor']
+        if 'isMobile' in device_config:
+            playwright_config['is_mobile'] = device_config['isMobile']
+        if 'hasTouch' in device_config:
+            playwright_config['has_touch'] = device_config['hasTouch']
+        if 'colorScheme' in device_config:
+            playwright_config['color_scheme'] = device_config['colorScheme']
+        if 'reducedMotion' in device_config:
+            playwright_config['reduced_motion'] = device_config['reducedMotion']
+        if 'forcedColors' in device_config:
+            playwright_config['forced_colors'] = device_config['forcedColors']
+            
+        return playwright_config
+
+    def _save_reports(self):
+        """Saves the consolidated reports for each device type."""
+        # Create results folder structure
+        os.makedirs(self.config.results_folder, exist_ok=True)
+        
+        for device_type, device_results in self.results.items():
+            if not device_results:
+                print(f"No results found for {device_type}, skipping report generation.")
+                continue
+            
+            # Parse device type to determine folder structure
+            if device_type.startswith('mobile-'):
+                form_factor = 'mobile'
+                platform = device_type.replace('mobile-', '')
+                device_folder = os.path.join(self.config.results_folder, form_factor, platform)
+                report_name = f"accessibility_report_{form_factor}_{platform}"
+            elif device_type.startswith('tablet-'):
+                form_factor = 'tablet'
+                platform = device_type.replace('tablet-', '')
+                device_folder = os.path.join(self.config.results_folder, form_factor, platform)
+                report_name = f"accessibility_report_{form_factor}_{platform}"
+            else:
+                # Desktop case
+                device_folder = os.path.join(self.config.results_folder, device_type)
+                report_name = f"accessibility_report_{device_type}"
+            
+            # Create device-specific folder
+            os.makedirs(device_folder, exist_ok=True)
+            
+            # Create device-specific screenshots folder
+            screenshots_folder = os.path.join(device_folder, "screenshots")
+            os.makedirs(screenshots_folder, exist_ok=True)
+            
+            # Filter out any results that are just error strings
+            valid_results = [r for r in device_results if "error" not in r]
+            
+            if not valid_results:
+                print(f"No valid results for {device_type}, skipping report generation.")
+                continue
+            
+            report_content = self.reporter.generate_report(
+                results=valid_results,
+                base_url=self.config.base_url,
+                report_format=self.config.report_format,
+                device_type=device_type
+            )
+            
+            # Generate device-specific filename
+            extension = self.config.report_format
+            filename = f"{report_name}.{extension}"
+            filepath = os.path.join(device_folder, filename)
+            
+            self.reporter.save_report(report_content, filepath)
+            print(f"\n{device_type.capitalize()} report saved to {os.path.abspath(filepath)}")
+
+    async def _process_private_urls_for_device_with_auth_context(self, auth_context: BrowserContext, private_urls: List[str], template_name: str, device_type: str, pbar: "tqdm"):
+        """Process private URLs in parallel for a device type using the provided authenticated context."""
+        try:
+            max_concurrent_tabs = self._get_max_tabs_for_urls(len(private_urls), "private")
+            
+            # Create URL queue
+            url_queue = asyncio.Queue()
+            for url in private_urls:
+                await url_queue.put(url)
+            
+            # Create worker tasks using the authenticated context
+            tasks = []
+            for i in range(max_concurrent_tabs):
+                worker_name = f"private-tab-{i+1}-{device_type}"
+                task = asyncio.create_task(
+                    self._process_private_url_worker(auth_context, url_queue, template_name, device_type, pbar, worker_name)
+                )
+                tasks.append(task)
+            
+            print(f"🚀 Running {len(private_urls)} private URLs across {max_concurrent_tabs} authenticated tabs...")
+            
+            # Wait for completion
+            try:
+                await asyncio.wait_for(url_queue.join(), timeout=self._get_queue_join_timeout("private"))
+                print(f"✅ All private URLs processed for {device_type}")
+            except asyncio.TimeoutError:
+                print("⚠️ Warning: Private URL processing timed out")
+            
+            # Cancel remaining tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except:
+                pass
+                
+        finally:
+            # Don't close the auth_context here as it might be reused by SSO manager
+            print(f"✅ Private URLs processing completed for {device_type}")
+
+    def _get_max_tabs_for_urls(self, url_count: int, url_type: str = "general") -> int:
+        """Get the maximum number of tabs to use based on configuration and URL type."""
+        if not self.config.parallel_config:
+            # Fallback to max_concurrent_tabs if parallel_config is not set
+            base_limit = getattr(self.config, 'max_concurrent_tabs', 6)
+            return min(self.config.max_workers, url_count, base_limit)
+        
+        # Use parallel_config settings
+        parallel_config = self.config.parallel_config
+        
+        if url_type == "public":
+            max_tabs = parallel_config.get('public_urls_max_tabs', 5)
+        elif url_type == "private":
+            max_tabs = parallel_config.get('private_urls_max_tabs', 3)
+        else:
+            max_tabs = self.config.max_concurrent_tabs
+        
+        # Apply stability limit if enabled
+        if parallel_config.get('enable_tab_limit', True):
+            stability_limit = parallel_config.get('tab_stability_limit', 6)
+            max_tabs = min(max_tabs, stability_limit)
+        
+        return min(self.config.max_workers, url_count, max_tabs)
+
+    def _get_max_tabs_for_auth_group(self, url_count: int) -> int:
+        """Get the maximum number of tabs for an authentication group."""
+        auth_group_limit = getattr(self.config, 'max_tabs_per_authentication_group', 4)
+        return min(self.config.max_workers, url_count, auth_group_limit)
+
+    def _get_timeout_config(self, timeout_key: str, default_value: float) -> float:
+        """Get timeout value from configuration with fallback to default."""
+        if not self.config.timeout_config:
+            return default_value
+        return self.config.timeout_config.get(timeout_key, default_value)
+
+    def _get_page_load_timeout(self, url_type: str = "general") -> int:
+        """Get page load timeout in milliseconds based on URL type."""
+        if url_type == "public":
+            return int(self._get_timeout_config('page_load_timeout_public_ms', 30000))
+        else:
+            return int(self._get_timeout_config('page_load_timeout_ms', 60000))
+
+    def _get_queue_join_timeout(self, url_type: str = "general") -> float:
+        """Get queue join timeout in seconds based on URL type."""
+        if url_type == "public":
+            return self._get_timeout_config('queue_join_timeout_public_s', 300.0)
+        elif url_type == "private":
+            return self._get_timeout_config('queue_join_timeout_private_s', 600.0)
+        elif url_type == "auth":
+            return self._get_timeout_config('queue_join_timeout_auth_s', 600.0)
+        else:
+            return self._get_timeout_config('queue_join_timeout_public_s', 300.0)
+
+    def _get_task_cleanup_timeout(self) -> float:
+        """Get task cleanup timeout in seconds."""
+        return self._get_timeout_config('task_cleanup_timeout_s', 10.0)
+
+    def _get_queue_get_timeout(self) -> float:
+        """Get queue get timeout in seconds."""
+        return self._get_timeout_config('queue_get_timeout_s', 1.0)
+
+    def _get_post_navigation_delay(self) -> float:
+        """Get post-navigation delay in seconds."""
+        return self._get_timeout_config('post_navigation_delay_ms', 2000) / 1000.0
