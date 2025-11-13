@@ -24,8 +24,16 @@ class ReportGenerator:
             content = str(results)
             extension = "txt"
         
-        # Save the report
-        output_dir = f"results/{device_type}"
+        # Save the report - use hierarchical structure for mobile and tablet
+        if device_type.startswith('mobile-'):
+            platform = device_type.replace('mobile-', '')
+            output_dir = os.path.join("results", "mobile", platform)
+        elif device_type.startswith('tablet-'):
+            platform = device_type.replace('tablet-', '')
+            output_dir = os.path.join("results", "tablet", platform)
+        else:
+            output_dir = f"results/{device_type}"
+        
         os.makedirs(output_dir, exist_ok=True)
         filename = f"{output_dir}/accessibility_report.{extension}"
         self.save_report(content, filename)
