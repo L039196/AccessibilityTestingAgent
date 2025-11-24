@@ -110,8 +110,8 @@ class SSOAuthManager:
         
         return None
 
-    async def authenticate_with_template(self, template_name: str) -> AuthResult:
-        """Authenticate using the specified template with session sharing"""
+    async def authenticate_with_template(self, template_name: str, context_options: Dict[str, Any] = None) -> AuthResult:
+        """Authenticate using the specified template with session sharing and device-specific configuration"""
         if template_name in self.authenticated_templates:
             print(f"✅ Already authenticated with {template_name}")
             return AuthResult(
@@ -138,13 +138,20 @@ class SSOAuthManager:
         try:
             print(f"🔐 Starting authentication with {template['projectName']}...")
             
-            # Create or reuse shared context
+            # Create or reuse shared context with device-specific configuration
             if not self.shared_context:
-                self.shared_context = await self.browser.new_context(
-                    viewport={'width': 1280, 'height': 720},
-                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                )
-                print("🆕 Created new shared browser context")
+                # Use provided context options or default to desktop
+                if context_options:
+                    self.shared_context = await self.browser.new_context(**context_options)
+                    device_info = f"{context_options.get('viewport', {}).get('width', '?')}x{context_options.get('viewport', {}).get('height', '?')}"
+                    mobile_status = "📱 Mobile" if context_options.get('is_mobile') else "🖥️ Desktop"
+                    print(f"🆕 Created new shared browser context ({mobile_status} - {device_info})")
+                else:
+                    self.shared_context = await self.browser.new_context(
+                        viewport={'width': 1280, 'height': 720},
+                        user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    )
+                    print("🆕 Created new shared browser context (Desktop)")
             
             # Create a new page for authentication
             auth_page = await self.shared_context.new_page()

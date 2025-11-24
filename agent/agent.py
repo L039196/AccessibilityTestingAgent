@@ -242,11 +242,12 @@ class Agent:
             context = await browser.new_context(**context_options)
             page = await context.new_page()
             
-            # Try to navigate to the URL
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=10000)
+            # Try to navigate to the URL with better wait strategy
+            response = await page.goto(url, wait_until="networkidle", timeout=30000)
             
-            # Wait a bit for any redirects
-            await page.wait_for_timeout(1000)
+            # Wait for page to be fully stable
+            await page.wait_for_load_state("domcontentloaded", timeout=5000)
+            await page.wait_for_timeout(1500)
             
             # Get the current URL after any redirects
             current_url = page.url
@@ -406,9 +407,12 @@ class Agent:
                 # Initialize the SSO authenticator with the browser
                 await self.sso_authenticator.initialize(browser)
                 
-                # Authenticate using the template with performance tracking
+                # Authenticate using the template with performance tracking and device-specific config
                 with PerformanceLogger(self.logger, "SSO Authentication", mfa_template=mfa_template):
-                    auth_result = await self.sso_authenticator.authenticate_with_template(mfa_template)
+                    auth_result = await self.sso_authenticator.authenticate_with_template(
+                        mfa_template,
+                        context_options=context_options  # Pass device config to SSO!
+                    )
                 
                 if auth_result.success and auth_result.authenticated_context:
                     self.logger.info(f"SSO authentication successful for template: {mfa_template}")
@@ -478,13 +482,17 @@ class Agent:
                 print(f"{auth_status} Tab-{tab_index+1}: Testing {url}")
                 
                 # Navigate to URL with proper error handling
-                timeout = 30000 if test_config['requiresAuth'] else 20000
+                timeout = 60000 if test_config['requiresAuth'] else 30000
                 try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                    # Use networkidle for better page load detection
+                    await page.goto(url, wait_until="networkidle", timeout=timeout)
                     
-                    # For authenticated pages, wait briefly for dynamic content
+                    # For authenticated pages, wait for dynamic content to fully load
                     if test_config['requiresAuth']:
-                        await asyncio.sleep(1)
+                        # Wait for page to be stable
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                        # Additional wait for any client-side rendering
+                        await asyncio.sleep(2)
                         
                 except TimeoutError as e:
                     self.logger.warning(f"Navigation timeout for {url}, continuing with partial page load")
