@@ -15,6 +15,172 @@ class LocalAnalyzer:
         self.axe = Axe()
         self.axe_rules = axe_rules
 
+    async def _expand_all_interactive_elements(self, page: Page):
+        """
+        Expand all collapsible elements to scan hidden content for accessibility issues.
+        Includes: dropdowns, accordions, tabs, modals, menus, dialogs, etc.
+        
+        Returns:
+            Dictionary with counts of expanded elements for logging
+        """
+        try:
+            print("🔍 Expanding interactive elements to scan hidden content...")
+            expanded_counts = {}
+            
+            # 1. Expand all <details> elements (native HTML collapsibles)
+            details_script = """
+                const details = document.querySelectorAll('details:not([open])');
+                details.forEach(detail => detail.open = true);
+                return details.length;
+            """
+            details_count = await page.evaluate(details_script)
+            if details_count > 0:
+                expanded_counts['details'] = details_count
+                print(f"  ✓ Expanded {details_count} <details> elements")
+            
+            # 2. Click all expandable buttons/links (aria-expanded="false")
+            aria_expanded_script = """
+                const expandables = document.querySelectorAll('[aria-expanded="false"]');
+                let clicked = 0;
+                expandables.forEach(el => {
+                    try {
+                        if (el.click) {
+                            el.click();
+                            clicked++;
+                        }
+                    } catch(e) {}
+                });
+                return clicked;
+            """
+            aria_count = await page.evaluate(aria_expanded_script)
+            if aria_count > 0:
+                expanded_counts['aria-expanded'] = aria_count
+                print(f"  ✓ Clicked {aria_count} aria-expanded elements")
+            
+            # Wait for animations/transitions
+            await page.wait_for_timeout(500)
+            
+            # 3. Activate all tabs to scan each tab's content
+            tabs_script = """
+                const tabs = document.querySelectorAll('[role="tab"]:not([aria-selected="true"])');
+                let activated = 0;
+                tabs.forEach(tab => {
+                    try {
+                        if (tab.click) {
+                            tab.click();
+                            activated++;
+                        }
+                    } catch(e) {}
+                });
+                return activated;
+            """
+            tabs_count = await page.evaluate(tabs_script)
+            if tabs_count > 0:
+                expanded_counts['tabs'] = tabs_count
+                print(f"  ✓ Activated {tabs_count} inactive tabs")
+            
+            # Wait for tab content to load
+            await page.wait_for_timeout(500)
+            
+            # 4. Expand Bootstrap/Common framework collapsibles
+            bootstrap_script = """
+                const selectors = [
+                    '[data-toggle="collapse"]',
+                    '[data-bs-toggle="collapse"]',
+                    '.accordion-button.collapsed',
+                    '.collapse:not(.show)',
+                    '[data-toggle="dropdown"]',
+                    '[data-bs-toggle="dropdown"]'
+                ];
+                let expanded = 0;
+                selectors.forEach(selector => {
+                    const elements = document.querySelectorAll(selector);
+                    elements.forEach(el => {
+                        try {
+                            if (el.click) {
+                                el.click();
+                                expanded++;
+                            }
+                        } catch(e) {}
+                    });
+                });
+                return expanded;
+            """
+            bootstrap_count = await page.evaluate(bootstrap_script)
+            if bootstrap_count > 0:
+                expanded_counts['bootstrap'] = bootstrap_count
+                print(f"  ✓ Expanded {bootstrap_count} Bootstrap elements")
+            
+            # Wait for collapse animations
+            await page.wait_for_timeout(500)
+            
+            # 5. Show hidden menus and navigation
+            menu_script = """
+                const menus = document.querySelectorAll('[aria-hidden="true"][role="menu"], [aria-hidden="true"][role="navigation"]');
+                let shown = 0;
+                menus.forEach(menu => {
+                    menu.setAttribute('aria-hidden', 'false');
+                    menu.style.display = 'block';
+                    menu.style.visibility = 'visible';
+                    shown++;
+                });
+                return shown;
+            """
+            menu_count = await page.evaluate(menu_script)
+            if menu_count > 0:
+                expanded_counts['menus'] = menu_count
+                print(f"  ✓ Made {menu_count} hidden menus visible")
+            
+            # 6. Temporarily show elements with display:none for scanning
+            # Store original states to restore later if needed
+            hidden_content_script = """
+                const hiddenElements = [];
+                const selectors = [
+                    '[style*="display: none"]',
+                    '[style*="display:none"]',
+                    '.hidden:not(.visually-hidden)',
+                    '.d-none',
+                    '[hidden]'
+                ];
+                
+                selectors.forEach(selector => {
+                    const elements = document.querySelectorAll(selector);
+                    elements.forEach(el => {
+                        // Skip screen-reader-only content (keep it hidden visually)
+                        const classes = el.className || '';
+                        if (classes.includes('sr-only') || 
+                            classes.includes('visually-hidden') ||
+                            classes.includes('screen-reader')) {
+                            // Skip this element, continue to next
+                        } else {
+                            // Store original state
+                            el.setAttribute('data-axe-was-hidden', 'true');
+                            
+                            // Make visible for scanning
+                            el.removeAttribute('hidden');
+                            el.style.display = '';
+                            el.classList.remove('hidden', 'd-none');
+                            hiddenElements.push(el);
+                        }
+                    });
+                });
+                
+                return hiddenElements.length;
+            """
+            hidden_count = await page.evaluate(hidden_content_script)
+            if hidden_count > 0:
+                expanded_counts['hidden'] = hidden_count
+                print(f"  ✓ Made {hidden_count} hidden elements visible for scanning")
+            
+            total_expanded = sum(expanded_counts.values())
+            print(f"✅ Total elements expanded/revealed: {total_expanded}")
+            
+            return expanded_counts
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not expand some elements: {e}")
+            return {}
+
     async def find_issues(self, page: Page, device_type: str = "desktop", device_name: str = "Desktop") -> list:
         """
         Runs the axe-core accessibility analysis on the given Playwright page.
@@ -29,6 +195,10 @@ class LocalAnalyzer:
             A list of violation dictionaries, with screenshot data added to each node.
         """
         print(f"Running axe-core analysis on {page.url}...")
+        
+        # Expand all interactive elements before scanning
+        await self._expand_all_interactive_elements(page)
+        
         results = await self.axe.run(page, context=self.axe_rules)
         
         violations = results['violations']
@@ -336,8 +506,8 @@ class LocalAnalyzer:
         simplified = re.sub(r'\\\]', ']', simplified)
         
         # Remove complex pseudo-selectors
-        simplified = re.sub(r':not\([^)]+\)', '', simplified)
-        simplified = re.sub(r':has\([^)]+\)', '', simplified)
+        simplified = re.sub(r':not\([^)]+\)', '', selector)
+        simplified = re.sub(r':has\([^)]+\)', '', selector)
         
         # Clean up multiple spaces and leading/trailing spaces
         simplified = re.sub(r'\s+', ' ', simplified).strip()

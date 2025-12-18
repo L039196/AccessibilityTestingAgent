@@ -101,6 +101,49 @@ class Agent:
         
         self.logger.info(f"Agent initialized with {len(config.device_types)} device types, max_workers={config.max_workers}")
 
+    def _cleanup_old_results(self, device_type: str = None):
+        """
+        Clean up old screenshots and HTML reports before starting a new test run.
+        This prevents mixing old and new screenshots and ensures fresh results.
+        
+        Args:
+            device_type: If provided, only clean this device type. If None, clean all.
+        """
+        import shutil
+        
+        devices_to_clean = [device_type] if device_type else self.config.device_types
+        
+        for dtype in devices_to_clean:
+            # Determine the correct path based on device type
+            if dtype.startswith('mobile-'):
+                platform = dtype.replace('mobile-', '')
+                results_dir = os.path.join("results", "mobile", platform)
+            elif dtype.startswith('tablet-'):
+                platform = dtype.replace('tablet-', '')
+                results_dir = os.path.join("results", "tablet", platform)
+            else:
+                results_dir = os.path.join("results", dtype)
+            
+            screenshots_dir = os.path.join(results_dir, "screenshots")
+            
+            # Clean screenshots directory
+            if os.path.exists(screenshots_dir):
+                try:
+                    shutil.rmtree(screenshots_dir)
+                    self.logger.info(f"Cleaned old screenshots from {screenshots_dir}")
+                    print(f"🧹 Cleaned old screenshots for {dtype}")
+                except Exception as e:
+                    self.logger.warning(f"Could not clean screenshots directory {screenshots_dir}: {e}")
+            
+            # Clean old HTML reports (keep structure, just remove the HTML file)
+            html_report = os.path.join(results_dir, "accessibility_report.html")
+            if os.path.exists(html_report):
+                try:
+                    os.remove(html_report)
+                    self.logger.info(f"Removed old HTML report from {results_dir}")
+                except Exception as e:
+                    self.logger.warning(f"Could not remove old HTML report {html_report}: {e}")
+
     async def run(self):
         """
         Runs the accessibility test suite across different device types.
@@ -110,6 +153,10 @@ class Agent:
         self.logger.info("Starting Automated Accessibility Test Agent")
         self.logger.info("="*60)
         print("Starting Automated Accessibility Test Agent...")
+        
+        # Clean up old screenshots and reports before starting new test
+        print("🧹 Cleaning up old results...")
+        self._cleanup_old_results()
         
         overall_start_time = time.time()
         
