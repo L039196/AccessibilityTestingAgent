@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+ENV/
+env/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Logs
+logs/
+*.log
+
+# Test results and screenshots
+results/
+screenshots/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Temporary documentation files (keep only main docs)
+*_STATUS.md
+*_SOLUTION.md
+COMPREHENSIVE_SCANNING.md
+HIDDEN_CONTENT_*.md
+QUICK_START_COMPREHENSIVE.md
+accessibility_full_website_report.md

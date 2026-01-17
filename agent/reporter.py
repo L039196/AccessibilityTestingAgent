@@ -231,13 +231,17 @@ class ReportGenerator:
                         if node.get('screenshot'):
                             # Make screenshot path relative to the HTML file location
                             screenshot_path = node['screenshot']
-                            # If path contains 'results/', make it relative to the device folder
-                            if 'results/' in screenshot_path and device_type != "all_devices":
-                                # Extract just the filename from the full path
-                                screenshot_filename = screenshot_path.split('/')[-1]
+                            # Extract just the filename from the full path
+                            # Path format: results/desktop/screenshots/screenshot_desktop_default_*.png
+                            # HTML location: results/desktop/accessibility_report.html
+                            # Relative path needed: screenshots/screenshot_desktop_default_*.png
+                            if '/' in screenshot_path or '\\' in screenshot_path:
+                                # Get just the filename
+                                screenshot_filename = os.path.basename(screenshot_path)
                                 relative_path = f"screenshots/{screenshot_filename}"
                             else:
-                                relative_path = screenshot_path
+                                # Already just a filename
+                                relative_path = f"screenshots/{screenshot_path}"
                             html_content += f"<img src='{relative_path}' alt='Screenshot of the accessibility issue' class='screenshot'>"
                         html_content += '</div>'
                     html_content += "</div></details>"

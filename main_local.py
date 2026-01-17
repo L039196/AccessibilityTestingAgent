@@ -1,11 +1,12 @@
 import argparse
-from playwright.sync_api import sync_playwright
+import asyncio
+from playwright.async_api import async_playwright
 from agent.local_analyzer import LocalAnalyzer
 from agent.reporter import ReportGenerator
 from agent.crawler import Crawler
 import os
 
-def main(url: str, max_pages: int):
+async def main(url: str, max_pages: int):
     """
     Main function to run the local accessibility test agent across an entire website.
     """
@@ -13,39 +14,77 @@ def main(url: str, max_pages: int):
 
     # 1. Initialize components
     analyzer = LocalAnalyzer()
-    reporter = ReportGenerator(report_format="md")
+    reporter = ReportGenerator()
     crawler = Crawler(base_url=url, max_pages=max_pages)
     
-    full_report = f"# Accessibility Report for {url}\n\n"
+    # Clean old screenshots ONCE before all tests
+    screenshots_dir = os.path.join("results", "desktop", "screenshots")
+    analyzer._clean_old_screenshots(screenshots_dir)
+    os.makedirs(screenshots_dir, exist_ok=True)
+    
+    # Collect results from all pages
+    all_results = []
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
         
         try:
             # 2. Crawl the website to get all URLs
-            urls_to_test = crawler.crawl(page)
+            urls_to_test = await crawler.crawl(page)
             print(f"\nFound {len(urls_to_test)} pages to test.")
             
             # 3. Analyze each URL
             for i, test_url in enumerate(urls_to_test, 1):
                 print(f"\n--- Testing page {i}/{len(urls_to_test)}: {test_url} ---")
                 try:
-                    page.goto(test_url, wait_until="domcontentloaded")
-                    violations = analyzer.find_issues(page)
-                    page_report = analyzer.format_report(violations, test_url)
-                    full_report += page_report
+                    await page.goto(test_url, wait_until="domcontentloaded", timeout=30000)
+                    
+                    # Add timeout to prevent hanging on complex pages
+                    violations = await asyncio.wait_for(
+                        analyzer.find_issues(page),
+                        timeout=90.0  # 90 second max per page
+                    )
+                    
+                    page_result = analyzer.format_report(violations, test_url)
+                    all_results.append(page_result)
+                    
+                except asyncio.TimeoutError:
+                    print(f"⚠️  Timeout: Analysis took longer than 90 seconds for {test_url}")
+                    all_results.append({
+                        'url': test_url,
+                        'violations': [],
+                        'error': 'Timeout after 90 seconds'
+                    })
                 except Exception as e:
                     print(f"Could not test {test_url}: {e}")
+                    # Add error result
+                    all_results.append({
+                        'url': test_url,
+                        'violations': [],
+                        'error': str(e)
+                    })
             
-            # 4. Save the consolidated report
-            report_filename = "accessibility_full_website_report.md"
-            reporter.save_report(full_report, report_filename)
-            print(f"\nFull website report saved to {os.path.abspath(report_filename)}")
+            # 4. Generate reports in multiple formats
+            print("\n" + "="*70)
+            print("📊 Generating reports...")
+            print("="*70)
+            
+            # Generate Markdown report
+            md_report = reporter.generate_report(all_results, url, "md", "desktop")
+            print(f"✅ Markdown report saved to: results/desktop/accessibility_report.md")
+            
+            # Generate HTML report
+            html_report = reporter.generate_report(all_results, url, "html", "desktop")
+            print(f"✅ HTML report saved to: results/desktop/accessibility_report.html")
+            
+            # Generate JSON report
+            json_report = reporter.generate_report(all_results, url, "json", "desktop")
+            print(f"✅ JSON report saved to: results/desktop/accessibility_report.json")
 
         finally:
             # 5. Clean up
-            browser.close()
+            await browser.close()
             print("Agent finished.")
 
 if __name__ == "__main__":
@@ -54,4 +93,4 @@ if __name__ == "__main__":
     parser.add_argument("--max-pages", type=int, default=10, help="The maximum number of pages to crawl and test.")
     
     args = parser.parse_args()
-    main(args.url, args.max_pages)
+    asyncio.run(main(args.url, args.max_pages))
