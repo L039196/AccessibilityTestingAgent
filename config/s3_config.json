@@ -1,0 +1,34 @@
+{
+  "s3_config": {
+    "enabled": true,
+    "bucket_name": "test-qa1-bucket",
+    "region": "us-east-1",
+    "auto_cleanup_local": true,
+    "presigned_url_expiry_seconds": 604800,
+    "storage_path_template": "sessions/{user_id}/{date}-{session_id}/{device_type}/",
+    "lifecycle": {
+      "auto_delete_after_days": 30,
+      "archive_after_days": 7
+    },
+    "upload_settings": {
+      "max_file_size_mb": 100,
+      "allowed_extensions": [".html", ".json", ".png", ".jpg", ".jpeg", ".css", ".js", ".txt", ".md"],
+      "compression": false
+    }
+  },
+  "aws_credentials": {
+    "use_environment_variables": true,
+    "access_key_id": "",
+    "secret_access_key": ""
+  },
+  "notes": {
+    "enabled": "Set to true to enable S3 storage for reports",
+    "bucket_name": "Your S3 bucket name (must be globally unique)",
+    "region": "AWS region where bucket is located (e.g., us-east-1, eu-west-1)",
+    "auto_cleanup_local": "Delete local files after successful S3 upload",
+    "presigned_url_expiry_seconds": "How long presigned URLs remain valid (default: 7 days)",
+    "use_environment_variables": "If true, reads AWS credentials from environment (recommended)",
+    "access_key_id": "AWS Access Key ID (leave empty if using environment variables)",
+    "secret_access_key": "AWS Secret Access Key (leave empty if using environment variables)"
+  }
+}

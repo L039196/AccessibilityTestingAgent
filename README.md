@@ -13,12 +13,16 @@ The Automated Accessibility Testing Agent provides comprehensive multi-device ac
 - **✅ Screenshot Capabilities**: Device-specific screenshot capture with clean naming
 - **✅ NPM Scripts**: Easy-to-use command shortcuts for all device combinations
 - **✅ WCAG Compliance**: Testing against WCAG 2.0 AA, WCAG 2.1 AA, and best practices
+- **✅ AWS S3 Cloud Storage**: Optional cloud storage with presigned URLs (7-day expiry)
+- **✅ BrowserStack Integration**: Real device testing with Selenium WebDriver
 
 ### **RECENT IMPROVEMENTS:**
 - **🔧 Fixed Folder Structure**: Proper hierarchical organization (`mobile/ios/` instead of flat `mobile-ios/`)
 - **⚡ Enhanced Performance**: Up to 6 parallel Chromium workers for faster testing
 - **🧹 Streamlined Reports**: Removed redundant combined reports, focused on platform-specific results
 - **🔄 Consistent Browser Engine**: All parallel workers use Chromium for reliability
+- **☁️ S3 Integration**: Cloud storage for reports with automatic cleanup and lifecycle policies
+- **🌐 BrowserStack Support**: Test on real iOS/Android devices remotely
 
 ## 📁 Results Structure
 
@@ -90,6 +94,57 @@ results/
 - **Safari 1440x900** - MacBook standard (macOS Safari)
 - **Edge 1366x768** - Common laptop resolution (Windows Edge)
 - **Chrome 2560x1440** - High-resolution display (Windows Chrome)
+
+## ☁️ Cloud Storage (S3)
+
+### Overview
+Store accessibility test reports and screenshots in AWS S3 for cloud-deployed environments. Reports are accessible via presigned URLs with 7-day expiry and automatic 30-day cleanup.
+
+### Quick Start
+```bash
+# 1. Setup AWS credentials (one-time)
+cp .env.s3.template .env
+# Edit .env with your AWS credentials
+
+# 2. Run tests with S3 storage
+npm run test:s3:desktop
+npm run test:s3:mobile
+npm run test:s3:tablet
+```
+
+### Features
+- **☁️ Cloud Storage**: Upload reports to AWS S3 automatically
+- **🔗 Presigned URLs**: Secure temporary URLs (7-day expiry)
+- **🧹 Auto Cleanup**: Remove local files after S3 upload
+- **📦 Lifecycle Policy**: Auto-delete reports after 30 days
+- **💰 Cost Effective**: ~$5/month with AWS Free Tier
+
+### S3 Commands
+```bash
+# Basic S3 testing
+npm run test:s3                    # Default desktop with S3
+npm run test:s3:desktop            # Desktop → S3
+npm run test:s3:mobile             # Mobile → S3
+npm run test:s3:tablet             # Tablet → S3
+
+# BrowserStack + S3 (real devices + cloud storage)
+npm run test:s3:browserstack:desktop
+npm run test:s3:browserstack:mobile
+npm run test:s3:browserstack:tablet
+
+# Matrix testing with S3
+npm run test:s3:matrix:platforms   # All platforms → S3
+
+# Explicit local storage (no S3)
+npm run test:local:desktop
+npm run test:local:mobile
+npm run test:local:tablet
+```
+
+### Documentation
+- **Setup Guide**: [docs/S3_SETUP_GUIDE.md](docs/S3_SETUP_GUIDE.md)
+- **NPM Scripts**: [docs/S3_NPM_SCRIPTS.md](docs/S3_NPM_SCRIPTS.md)
+- **Quick Reference**: [docs/S3_QUICK_REFERENCE.md](docs/S3_QUICK_REFERENCE.md)
 
 ## 🚀 Testing Commands
 

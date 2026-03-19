@@ -2,11 +2,17 @@ import asyncio
 import argparse
 import json
 import csv
+import os
+from dotenv import load_dotenv
 from agent.agent import Agent, Config
 from agent.crawler import Crawler
 from agent.local_analyzer import LocalAnalyzer
 from agent.reporter import ReportGenerator
 from agent.csv_loader import load_enhanced_csv, load_urls_from_csv
+from agent.s3_config_loader import S3ConfigLoader
+
+# Load environment variables from .env file
+load_dotenv()
 
 def load_config(config_path: str) -> dict:
     """Loads the configuration from a JSON file."""
@@ -97,6 +103,15 @@ async def main(url: str, max_pages: int, config_path: str, csv_path: str, device
     if 'base_url' not in config_data:
         raise ValueError("The base URL must be provided either via a command-line argument, a CSV file, or in the config file.")
 
+    # Load S3 configuration
+    s3_config = S3ConfigLoader.load_config()
+    is_valid, error_msg = S3ConfigLoader.validate_config(s3_config)
+    
+    if s3_config.get('enabled') and not is_valid:
+        print(f"⚠️ S3 configuration error: {error_msg}")
+        print("ℹ️ Continuing with local storage only")
+        s3_config['enabled'] = False
+    
     # Debug: Print config_data to see what's being passed
     print("🔍 Debug - config_data keys:", list(config_data.keys()))
 
@@ -104,6 +119,15 @@ async def main(url: str, max_pages: int, config_path: str, csv_path: str, device
         base_url=config_data.pop('base_url'),
         **config_data
     )
+    
+    # Merge S3 configuration into agent config
+    config = S3ConfigLoader.merge_with_agent_config(config, s3_config)
+    
+    if config.enable_s3_storage:
+        print(f"✅ S3 storage enabled - Bucket: {config.s3_bucket_name}")
+        print(f"📍 Region: {config.s3_region}")
+    else:
+        print("ℹ️ S3 storage disabled - using local storage")
     
     # Initialize components
     crawler = Crawler(base_url=config.base_url, max_pages=config.max_pages)
