@@ -202,6 +202,29 @@
     "test:wcag22:all:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json --headless=true",
     "test:wcag22:all:headed": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --config config.json --headless=false",
     
+    "test:s3": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --headless=false",
+    "test:s3:headless": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --headless=true",
+    "test:s3:desktop": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop",
+    "test:s3:desktop:headless": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --headless=true",
+    "test:s3:desktop:headed": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --headless=false",
+    "test:s3:mobile": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios",
+    "test:s3:mobile:headless": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=true",
+    "test:s3:mobile:headed": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=false",
+    "test:s3:tablet": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios",
+    "test:s3:tablet:headless": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=true",
+    "test:s3:tablet:headed": "ENABLE_S3_STORAGE=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=false",
+    "test:s3:browserstack": "ENABLE_S3_STORAGE=true USE_BROWSERSTACK=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv",
+    "test:s3:browserstack:desktop": "ENABLE_S3_STORAGE=true USE_BROWSERSTACK=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop",
+    "test:s3:browserstack:mobile": "ENABLE_S3_STORAGE=true USE_BROWSERSTACK=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios",
+    "test:s3:browserstack:tablet": "ENABLE_S3_STORAGE=true USE_BROWSERSTACK=true ./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios",
+    "test:s3:matrix:platforms": "ENABLE_S3_STORAGE=true npm run test:desktop:headless && npm run test:mobile:headless && npm run test:tablet:headless",
+    "test:s3:matrix:platforms:headed": "ENABLE_S3_STORAGE=true npm run test:desktop:headed && npm run test:mobile:headed && npm run test:tablet:headed",
+    "test:local": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --headless=false",
+    "test:local:headless": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --headless=true",
+    "test:local:desktop": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device desktop --headless=false",
+    "test:local:mobile": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device mobile-ios --headless=false",
+    "test:local:tablet": "./venv/bin/python main_parallel.py --csv urls_to_test.csv --device tablet-ios --headless=false",
+    
     "clean": "rm -rf results/ accessibility_results/ screenshots/ *.html *.json *.md",
     "clean:all": "rm -rf results/ accessibility_results/ screenshots/ __pycache__ .pytest_cache *.html *.json *.md venv/.cache",
     "clean:results": "rm -rf results/ accessibility_results/",
@@ -231,8 +254,11 @@
     "info:sequential": "echo '🔄 Sequential Mode: npm run test:desktop:sequential | npm run test:mobile:sequential | npm run test:tablet:sequential'",
     "info:workers": "echo '⚙️ Worker Control: npm run test:parallel:conservative | npm run test:parallel:moderate | npm run test:parallel:aggressive'",
     "info:wcag": "echo '📋 WCAG 2.2: npm run test:wcag22:all:headed | npm run verify:wcag22'",
+    "info:s3": "echo '☁️ S3 Cloud Storage: npm run test:s3:desktop | npm run test:s3:mobile | npm run test:s3:tablet'",
+    "info:browserstack": "echo '🌐 BrowserStack + S3: npm run test:s3:browserstack:desktop | npm run test:s3:browserstack:mobile'",
+    "info:local": "echo '💾 Local Storage Only: npm run test:local:desktop | npm run test:local:mobile | npm run test:local:tablet'",
     
-    "help": "npm run info && npm run info:usage && npm run info:headless && npm run info:sequential && npm run info:workers && npm run info:wcag"
+    "help": "npm run info && npm run info:usage && npm run info:headless && npm run info:sequential && npm run info:workers && npm run info:wcag && npm run info:s3 && npm run info:browserstack && npm run info:local"
   },
   "engines": {
     "node": ">=18.0.0",
@@ -258,7 +284,9 @@
       "CSV Configuration Management",
       "Interactive HTML Reports",
       "Screenshot Capture",
-      "Parallel Test Execution"
+      "Parallel Test Execution",
+      "AWS S3 Cloud Storage Integration",
+      "BrowserStack Remote Testing"
     ],
     "wcagLevels": ["A", "AA", "AAA"],
     "supportedDevices": {

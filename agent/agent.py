@@ -55,6 +55,13 @@ class Config:
     log_level: str = "INFO"
     enable_json_logs: bool = False
     
+    # S3 Storage Configuration
+    enable_s3_storage: bool = False
+    s3_bucket_name: str = ""
+    s3_region: str = "us-east-1"
+    s3_auto_cleanup_local: bool = True
+    s3_presigned_url_expiry: int = 604800  # 7 days
+    
     def __post_init__(self):
         """Validate configuration after initialization."""
         ConfigValidator.validate_and_raise(self)
@@ -90,6 +97,27 @@ class Agent:
         )
         self.retry_handler = RetryHandler(retry_config)
         
+        # Initialize S3 storage if enabled
+        self.s3_storage = None
+        if config.enable_s3_storage:
+            try:
+                from .storage import S3ReportStorage
+                import os
+                
+                self.s3_storage = S3ReportStorage(
+                    bucket_name=config.s3_bucket_name or os.getenv('S3_BUCKET_NAME', ''),
+                    region=config.s3_region or os.getenv('S3_REGION', 'us-east-1'),
+                    access_key=os.getenv('AWS_ACCESS_KEY_ID'),
+                    secret_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                    session_token=os.getenv('AWS_SESSION_TOKEN')
+                )
+                self.logger.info(f"✅ S3 storage enabled - bucket: {config.s3_bucket_name}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to initialize S3 storage: {e}")
+                self.logger.warning("⚠️ Continuing with local storage only")
+        else:
+            self.logger.info("ℹ️ S3 storage disabled - using local storage only")
+        
         # Initialize SSO if enabled
         if self.config.use_sso:
             self.sso_authenticator = SSOAuthManager()
@@ -101,6 +129,49 @@ class Agent:
         
         self.logger.info(f"Agent initialized with {len(config.device_types)} device types, max_workers={config.max_workers}")
 
+    def _cleanup_old_results(self, device_type: str = None):
+        """
+        Clean up old screenshots and HTML reports before starting a new test run.
+        This prevents mixing old and new screenshots and ensures fresh results.
+        
+        Args:
+            device_type: If provided, only clean this device type. If None, clean all.
+        """
+        import shutil
+        
+        devices_to_clean = [device_type] if device_type else self.config.device_types
+        
+        for dtype in devices_to_clean:
+            # Determine the correct path based on device type
+            if dtype.startswith('mobile-'):
+                platform = dtype.replace('mobile-', '')
+                results_dir = os.path.join("results", "mobile", platform)
+            elif dtype.startswith('tablet-'):
+                platform = dtype.replace('tablet-', '')
+                results_dir = os.path.join("results", "tablet", platform)
+            else:
+                results_dir = os.path.join("results", dtype)
+            
+            screenshots_dir = os.path.join(results_dir, "screenshots")
+            
+            # Clean screenshots directory
+            if os.path.exists(screenshots_dir):
+                try:
+                    shutil.rmtree(screenshots_dir)
+                    self.logger.info(f"Cleaned old screenshots from {screenshots_dir}")
+                    print(f"🧹 Cleaned old screenshots for {dtype}")
+                except Exception as e:
+                    self.logger.warning(f"Could not clean screenshots directory {screenshots_dir}: {e}")
+            
+            # Clean old HTML reports (keep structure, just remove the HTML file)
+            html_report = os.path.join(results_dir, "accessibility_report.html")
+            if os.path.exists(html_report):
+                try:
+                    os.remove(html_report)
+                    self.logger.info(f"Removed old HTML report from {results_dir}")
+                except Exception as e:
+                    self.logger.warning(f"Could not remove old HTML report {html_report}: {e}")
+
     async def run(self):
         """
         Runs the accessibility test suite across different device types.
@@ -110,6 +181,10 @@ class Agent:
         self.logger.info("Starting Automated Accessibility Test Agent")
         self.logger.info("="*60)
         print("Starting Automated Accessibility Test Agent...")
+        
+        # Clean up old screenshots and reports before starting new test
+        print("🧹 Cleaning up old results...")
+        self._cleanup_old_results()
         
         overall_start_time = time.time()
         
@@ -717,6 +792,11 @@ class Agent:
 
     def _save_reports(self):
         """Save all test results to reports with proper error handling."""
+        import uuid
+        import shutil
+        
+        session_id = str(uuid.uuid4())[:8]  # Short session ID
+        
         for device_type, results in self.results.items():
             if results:
                 self.logger.info(f"Generating {device_type} report with {len(results)} test results")
@@ -732,6 +812,36 @@ class Agent:
                     )
                     self.logger.info(f"Report saved successfully to: {output_dir}")
                     print(f"✅ Report saved to: {output_dir}")
+                    
+                    # Upload to S3 if enabled
+                    if self.s3_storage:
+                        try:
+                            self.logger.info(f"📤 Uploading {device_type} report to S3...")
+                            print(f"📤 Uploading to S3...")
+                            
+                            user_id = os.getenv('USER_ID', 'default')
+                            s3_result = self.s3_storage.upload_report_folder(
+                                local_folder_path=output_dir,
+                                user_id=user_id,
+                                session_id=session_id,
+                                device_type=device_type
+                            )
+                            
+                            self.logger.info(f"✅ Report uploaded to S3: {s3_result['total_files']} files, {s3_result['total_size_mb']:.2f} MB")
+                            print(f"✅ Uploaded to S3: {s3_result['total_files']} files")
+                            print(f"📊 Report URL: {s3_result['report_url']}")
+                            print(f"⏰ URL expires in: 7 days")
+                            
+                            # Clean up local files if configured
+                            if self.config.s3_auto_cleanup_local:
+                                shutil.rmtree(output_dir)
+                                self.logger.info(f"🗑️ Cleaned up local files for {device_type}")
+                                print(f"🗑️ Local files cleaned up (available on S3)")
+                        
+                        except Exception as e:
+                            self.logger.error(f"❌ S3 upload failed: {e}")
+                            print(f"⚠️ S3 upload failed, report available locally: {output_dir}")
+                    
                 except Exception as e:
                     self.logger.error(f"Failed to generate report for {device_type}: {e}", exc_info=True)
                     print(f"❌ Error generating report: {e}")

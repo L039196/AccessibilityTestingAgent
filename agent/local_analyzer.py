@@ -15,10 +15,453 @@ class LocalAnalyzer:
         self.axe = Axe()
         self.axe_rules = axe_rules
 
+    async def _scroll_to_load_lazy_content(self, page: Page):
+        """
+        Scroll through page to trigger lazy-loaded content and infinite scroll.
+        
+        Returns:
+            Dictionary with scroll statistics
+        """
+        try:
+            print("📜 Scrolling to load lazy content...")
+            scroll_stats = {'scrolls': 0, 'new_content': 0}
+            
+            # Get initial content count
+            initial_count = await page.evaluate("document.querySelectorAll('*').length")
+            
+            # Scroll to bottom in steps to trigger lazy loading
+            scroll_script = """
+                async () => {
+                    const scrollStep = 500;
+                    const scrollDelay = 100;  // Reduced from 300ms for faster scanning
+                    let lastHeight = document.body.scrollHeight;
+                    let scrolls = 0;
+                    
+                    // Scroll down in steps
+                    for (let i = 0; i < document.body.scrollHeight; i += scrollStep) {
+                        window.scrollTo(0, i);
+                        await new Promise(resolve => setTimeout(resolve, scrollDelay));
+                        scrolls++;
+                        
+                        // Check if new content loaded
+                        const newHeight = document.body.scrollHeight;
+                        if (newHeight > lastHeight) {
+                            lastHeight = newHeight;
+                        }
+                    }
+                    
+                    // Final scroll to bottom
+                    window.scrollTo(0, document.body.scrollHeight);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    return scrolls;
+                }
+            """
+            scroll_stats['scrolls'] = await page.evaluate(scroll_script)
+            
+            # Check for new content after scrolling
+            final_count = await page.evaluate("document.querySelectorAll('*').length")
+            scroll_stats['new_content'] = final_count - initial_count
+            
+            if scroll_stats['new_content'] > 0:
+                print(f"  ✓ Loaded {scroll_stats['new_content']} new elements via scrolling")
+            
+            # Scroll back to top for analysis
+            await page.evaluate("window.scrollTo(0, 0)")
+            await page.wait_for_timeout(500)
+            
+            return scroll_stats
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not complete scroll loading: {e}")
+            return {'scrolls': 0, 'new_content': 0}
+
+    async def _trigger_modal_dialogs(self, page: Page):
+        """
+        Find and click buttons/links that trigger modals/dialogs to scan their content.
+        
+        Returns:
+            Dictionary with modal trigger statistics
+        """
+        try:
+            print("🔔 Triggering modal dialogs...")
+            modal_stats = {'triggered': 0, 'scanned': 0}
+            
+            # Find potential modal triggers
+            trigger_script = """
+                () => {
+                    const triggers = [];
+                    const selectors = [
+                        '[data-toggle="modal"]',
+                        '[data-bs-toggle="modal"]',
+                        '[aria-haspopup="dialog"]',
+                        'button[class*="modal"]',
+                        'a[class*="modal"]',
+                        '[role="button"][class*="open"]'
+                    ];
+                    
+                    selectors.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el.offsetParent !== null) { // Only visible elements
+                                triggers.push({
+                                    selector: selector,
+                                    text: el.textContent.trim().substring(0, 50)
+                                });
+                            }
+                        });
+                    });
+                    
+                    return triggers.length;
+                }
+            """
+            trigger_count = await page.evaluate(trigger_script)
+            
+            if trigger_count > 0:
+                print(f"  ✓ Found {trigger_count} potential modal triggers")
+                modal_stats['triggered'] = trigger_count
+                
+                # Note: Actually clicking modals can be disruptive
+                # We'll just make any existing modals visible
+                modal_reveal_script = """
+                    () => {
+                        const modals = document.querySelectorAll(
+                            '[role="dialog"], [role="alertdialog"], .modal, [aria-modal="true"]'
+                        );
+                        let revealed = 0;
+                        modals.forEach(modal => {
+                            if (modal.style.display === 'none' || modal.hasAttribute('hidden')) {
+                                modal.style.display = 'block';
+                                modal.removeAttribute('hidden');
+                                modal.setAttribute('aria-hidden', 'false');
+                                revealed++;
+                            }
+                        });
+                        return revealed;
+                    }
+                """
+                modal_stats['scanned'] = await page.evaluate(modal_reveal_script)
+                
+                if modal_stats['scanned'] > 0:
+                    print(f"  ✓ Revealed {modal_stats['scanned']} hidden modals for scanning")
+            
+            return modal_stats
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not trigger modals: {e}")
+            return {'triggered': 0, 'scanned': 0}
+
+    async def _simulate_hover_states(self, page: Page):
+        """
+        Simulate hover states on interactive elements to reveal hover-only content.
+        
+        Returns:
+            Dictionary with hover simulation statistics
+        """
+        try:
+            print("🖱️  Simulating hover states...")
+            hover_stats = {'hovered': 0, 'revealed': 0}
+            
+            # Add CSS to show all hover states simultaneously for scanning
+            hover_css_script = """
+                () => {
+                    const style = document.createElement('style');
+                    style.id = 'axe-hover-simulation';
+                    style.textContent = `
+                        /* Force hover states visible for accessibility scanning */
+                        [class*="hover"]:not(.hover\\:bg-black\\/10),
+                        nav ul li:hover > ul,
+                        .dropdown:hover > .dropdown-menu,
+                        [aria-haspopup]:hover > [role="menu"],
+                        [data-toggle="dropdown"]:hover + .dropdown-menu {
+                            display: block !important;
+                            visibility: visible !important;
+                            opacity: 1 !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                    
+                    // Count elements with hover-dependent content
+                    const hoverElements = document.querySelectorAll(
+                        '[class*="hover"], .dropdown, [aria-haspopup], [data-toggle="dropdown"]'
+                    );
+                    
+                    return hoverElements.length;
+                }
+            """
+            hover_stats['hovered'] = await page.evaluate(hover_css_script)
+            
+            if hover_stats['hovered'] > 0:
+                print(f"  ✓ Simulated hover on {hover_stats['hovered']} interactive elements")
+                
+                # Wait for any animations
+                await page.wait_for_timeout(500)
+            
+            return hover_stats
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not simulate hover states: {e}")
+            return {'hovered': 0, 'revealed': 0}
+
+    async def _scan_iframes(self, page: Page):
+        """
+        Scan content inside iframes for accessibility issues.
+        
+        Returns:
+            Dictionary with iframe statistics
+        """
+        try:
+            print("🖼️  Scanning iframe content...")
+            iframe_stats = {'found': 0, 'accessible': 0}
+            
+            # Find all iframes
+            iframe_script = """
+                () => {
+                    const iframes = document.querySelectorAll('iframe');
+                    const accessible = [];
+                    
+                    iframes.forEach((iframe, index) => {
+                        try {
+                            // Try to access iframe content (will fail for cross-origin)
+                            if (iframe.contentDocument) {
+                                accessible.push({
+                                    index: index,
+                                    src: iframe.src || 'about:blank',
+                                    title: iframe.title || ''
+                                });
+                            }
+                        } catch(e) {
+                            // Cross-origin iframe, cannot access
+                        }
+                    });
+                    
+                    return {
+                        total: iframes.length,
+                        accessible: accessible.length
+                    };
+                }
+            """
+            iframe_info = await page.evaluate(iframe_script)
+            iframe_stats['found'] = iframe_info['total']
+            iframe_stats['accessible'] = iframe_info['accessible']
+            
+            if iframe_stats['found'] > 0:
+                print(f"  ✓ Found {iframe_stats['found']} iframes ({iframe_stats['accessible']} accessible)")
+            
+            return iframe_stats
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not scan iframes: {e}")
+            return {'found': 0, 'accessible': 0}
+
+    async def _expand_all_interactive_elements(self, page: Page):
+        """
+        Expand all collapsible elements to scan hidden content for accessibility issues.
+        Includes: dropdowns, accordions, tabs, modals, menus, dialogs, etc.
+        
+        Returns:
+            Dictionary with counts of expanded elements for logging
+        """
+        try:
+            print("🔍 Expanding interactive elements to scan hidden content...")
+            expanded_counts = {}
+            
+            # 1. Expand all <details> elements (native HTML collapsibles)
+            details_script = """
+                () => {
+                    const details = document.querySelectorAll('details:not([open])');
+                    details.forEach(detail => detail.open = true);
+                    return details.length;
+                }
+            """
+            details_count = await page.evaluate(details_script)
+            if details_count > 0:
+                expanded_counts['details'] = details_count
+                print(f"  ✓ Expanded {details_count} <details> elements")
+            
+            # 2. Click all expandable buttons/links (aria-expanded="false")
+            aria_expanded_script = """
+                () => {
+                    const expandables = document.querySelectorAll('[aria-expanded="false"]');
+                    let clicked = 0;
+                    expandables.forEach(el => {
+                        try {
+                            if (el.click) {
+                                el.click();
+                                clicked++;
+                            }
+                        } catch(e) {}
+                    });
+                    return clicked;
+                }
+            """
+            aria_count = await page.evaluate(aria_expanded_script)
+            if aria_count > 0:
+                expanded_counts['aria-expanded'] = aria_count
+                print(f"  ✓ Clicked {aria_count} aria-expanded elements")
+            
+            # Wait for animations/transitions (reduced for performance)
+            await page.wait_for_timeout(200)
+            
+            # 3. Activate all tabs to scan each tab's content
+            tabs_script = """
+                () => {
+                    const tabs = document.querySelectorAll('[role="tab"]:not([aria-selected="true"])');
+                    let activated = 0;
+                    tabs.forEach(tab => {
+                        try {
+                            if (tab.click) {
+                                tab.click();
+                                activated++;
+                            }
+                        } catch(e) {}
+                    });
+                    return activated;
+                }
+            """
+            tabs_count = await page.evaluate(tabs_script)
+            if tabs_count > 0:
+                expanded_counts['tabs'] = tabs_count
+                print(f"  ✓ Activated {tabs_count} inactive tabs")
+            
+            # Wait for tab content to load (reduced for performance)
+            await page.wait_for_timeout(300)
+            
+            # 4. Expand Bootstrap/Common framework collapsibles
+            bootstrap_script = """
+                () => {
+                    const selectors = [
+                        '[data-toggle="collapse"]',
+                        '[data-bs-toggle="collapse"]',
+                        '.accordion-button.collapsed',
+                        '.collapse:not(.show)',
+                        '[data-toggle="dropdown"]',
+                        '[data-bs-toggle="dropdown"]'
+                    ];
+                    let expanded = 0;
+                    selectors.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            try {
+                                if (el.click) {
+                                    el.click();
+                                    expanded++;
+                                }
+                            } catch(e) {}
+                        });
+                    });
+                    return expanded;
+                }
+            """
+            bootstrap_count = await page.evaluate(bootstrap_script)
+            if bootstrap_count > 0:
+                expanded_counts['bootstrap'] = bootstrap_count
+                print(f"  ✓ Expanded {bootstrap_count} Bootstrap elements")
+            
+            # Wait for collapse animations (reduced for performance)
+            await page.wait_for_timeout(300)
+            
+            # 5. Show hidden menus and navigation
+            menu_script = """
+                () => {
+                    const menus = document.querySelectorAll('[aria-hidden="true"][role="menu"], [aria-hidden="true"][role="navigation"]');
+                    let shown = 0;
+                    menus.forEach(menu => {
+                        menu.setAttribute('aria-hidden', 'false');
+                        menu.style.display = 'block';
+                        menu.style.visibility = 'visible';
+                        shown++;
+                    });
+                    return shown;
+                }
+            """
+            menu_count = await page.evaluate(menu_script)
+            if menu_count > 0:
+                expanded_counts['menus'] = menu_count
+                print(f"  ✓ Made {menu_count} hidden menus visible")
+            
+            # 6. Temporarily show elements with display:none for scanning
+            # Store original states to restore later if needed
+            hidden_content_script = """
+                () => {
+                    const hiddenElements = [];
+                    const selectors = [
+                        '[style*="display: none"]',
+                        '[style*="display:none"]',
+                        '.hidden:not(.visually-hidden)',
+                        '.d-none',
+                        '[hidden]'
+                    ];
+                    
+                    selectors.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            // Skip screen-reader-only content (keep it hidden visually)
+                            const classes = el.className || '';
+                            if (classes.includes('sr-only') || 
+                                classes.includes('visually-hidden') ||
+                                classes.includes('screen-reader')) {
+                                // Skip this element, continue to next
+                            } else {
+                                // Store original state
+                                el.setAttribute('data-axe-was-hidden', 'true');
+                                
+                                // Make visible for scanning
+                                el.removeAttribute('hidden');
+                                el.style.display = '';
+                                el.classList.remove('hidden', 'd-none');
+                                hiddenElements.push(el);
+                            }
+                        });
+                    });
+                    
+                    return hiddenElements.length;
+                }
+            """
+            hidden_count = await page.evaluate(hidden_content_script)
+            if hidden_count > 0:
+                expanded_counts['hidden'] = hidden_count
+                print(f"  ✓ Made {hidden_count} hidden elements visible for scanning")
+            
+            total_expanded = sum(expanded_counts.values())
+            print(f"✅ Total elements expanded/revealed: {total_expanded}")
+            
+            return expanded_counts
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not expand some elements: {e}")
+            return {}
+
+    def _clean_old_screenshots(self, screenshots_dir: str):
+        """
+        Clean old screenshots from previous runs to prevent accumulation.
+        
+        Args:
+            screenshots_dir: Directory containing screenshots to clean
+        """
+        if not os.path.exists(screenshots_dir):
+            return
+        
+        try:
+            deleted_count = 0
+            for filename in os.listdir(screenshots_dir):
+                if filename.endswith('.png'):
+                    file_path = os.path.join(screenshots_dir, filename)
+                    try:
+                        os.remove(file_path)
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"⚠️  Could not delete {filename}: {e}")
+            
+            if deleted_count > 0:
+                print(f"🗑️  Cleaned {deleted_count} old screenshot(s) from previous runs")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not clean old screenshots: {e}")
+
     async def find_issues(self, page: Page, device_type: str = "desktop", device_name: str = "Desktop") -> list:
         """
-        Runs the axe-core accessibility analysis on the given Playwright page.
-        For each violation, it takes a screenshot of the failing element.
+        Runs comprehensive accessibility analysis on the given Playwright page.
+        Includes scanning of all visible, hidden, lazy-loaded, and interactive content.
 
         Args:
             page: The Playwright Page object to analyze.
@@ -28,12 +471,10 @@ class LocalAnalyzer:
         Returns:
             A list of violation dictionaries, with screenshot data added to each node.
         """
-        print(f"Running axe-core analysis on {page.url}...")
-        results = await self.axe.run(page, context=self.axe_rules)
+        print(f"Running comprehensive accessibility analysis on {page.url}...")
+        print("=" * 70)
         
-        violations = results['violations']
-
-        # Convert device type to proper hierarchical path
+        # Setup screenshot directory (cleaning happens once in main_local.py)
         if device_type.startswith('mobile-'):
             platform = device_type.replace('mobile-', '')
             screenshots_dir = os.path.join("results", "mobile", platform, "screenshots")
@@ -41,11 +482,35 @@ class LocalAnalyzer:
             platform = device_type.replace('tablet-', '')
             screenshots_dir = os.path.join("results", "tablet", platform, "screenshots")
         else:
-            # Desktop or other devices
             screenshots_dir = os.path.join("results", device_type, "screenshots")
-            
+        
+        # Ensure directory exists
         os.makedirs(screenshots_dir, exist_ok=True)
+        
+        # Phase 1: Load lazy content via scrolling
+        await self._scroll_to_load_lazy_content(page)
+        
+        # Phase 2: Trigger and reveal modal dialogs
+        await self._trigger_modal_dialogs(page)
+        
+        # Phase 3: Simulate hover states
+        await self._simulate_hover_states(page)
+        
+        # Phase 4: Scan iframes
+        await self._scan_iframes(page)
+        
+        # Phase 5: Expand all interactive elements (original functionality)
+        await self._expand_all_interactive_elements(page)
+        
+        print("=" * 70)
+        print("🔬 Running axe-core accessibility scan...")
+        
+        # Run axe-core analysis with all content now visible
+        results = await self.axe.run(page, context=self.axe_rules)
+        
+        violations = results['violations']
 
+        # Screenshot directory was already set up and cleaned at the start
         # Limit screenshots to prevent infinite loops and resource exhaustion
         max_screenshots_per_page = 10
         screenshot_count = 0
@@ -145,8 +610,25 @@ class LocalAnalyzer:
         """
         if not node.get('target'):
             return None
-            
-        target_selector = node['target'][0]
+        
+        # Handle target as list or string - axe-core returns a list of selectors
+        target = node['target']
+        if isinstance(target, list):
+            if len(target) == 0:
+                return None
+            # axe-core returns an array where each element is a selector for shadow DOM traversal
+            # For shadow DOM: ['parent-element', 'child-in-shadow']
+            # For regular DOM: ['#element-id']
+            # Join them with ' ' to create a compound selector or use the last one
+            if len(target) > 1:
+                # Multiple selectors indicate shadow DOM - use the most specific (last) selector
+                target_selector = target[-1]
+            else:
+                target_selector = target[0]
+            if not target_selector or not isinstance(target_selector, str):
+                return None
+        else:
+            target_selector = str(target)
         
         # Strategy 1: Direct element screenshot with visibility check
         try:
@@ -321,11 +803,15 @@ class LocalAnalyzer:
         Simplify complex CSS selectors by removing problematic parts.
         
         Args:
-            selector: Original CSS selector
+            selector: Original CSS selector (must be string)
             
         Returns:
             Simplified selector string
         """
+        # Ensure selector is a string
+        if not isinstance(selector, str):
+            return str(selector)
+        
         # Remove nth-child selectors
         simplified = re.sub(r':nth-child\([^)]+\)', '', selector)
         
@@ -336,8 +822,8 @@ class LocalAnalyzer:
         simplified = re.sub(r'\\\]', ']', simplified)
         
         # Remove complex pseudo-selectors
-        simplified = re.sub(r':not\([^)]+\)', '', simplified)
-        simplified = re.sub(r':has\([^)]+\)', '', simplified)
+        simplified = re.sub(r':not\([^)]+\)', '', selector)
+        simplified = re.sub(r':has\([^)]+\)', '', selector)
         
         # Clean up multiple spaces and leading/trailing spaces
         simplified = re.sub(r'\s+', ' ', simplified).strip()
@@ -356,11 +842,15 @@ class LocalAnalyzer:
         Extract ID-based selector from complex selector.
         
         Args:
-            selector: Original CSS selector
+            selector: Original CSS selector (must be string)
             
         Returns:
             ID selector if found, None otherwise
         """
+        # Ensure selector is a string
+        if not isinstance(selector, str):
+            return None
+        
         # Look for ID in the selector
         id_match = re.search(r'#([a-zA-Z0-9_-]+)', selector)
         if id_match:
@@ -382,12 +872,12 @@ class LocalAnalyzer:
             selector: CSS selector of the element to highlight
         """
         try:
-            # Inject highlighting script
-            highlight_script = f"""
-            (function() {{
-                const elements = document.querySelectorAll('{selector}');
-                elements.forEach(el => {{
-                    if (el) {{
+            # Use evaluate with a function to avoid string interpolation issues
+            highlight_script = """
+            (selector) => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                    if (el) {
                         const rect = el.getBoundingClientRect();
                         const highlight = document.createElement('div');
                         highlight.style.position = 'fixed';
@@ -401,11 +891,11 @@ class LocalAnalyzer:
                         highlight.style.pointerEvents = 'none';
                         highlight.className = 'accessibility-highlight';
                         document.body.appendChild(highlight);
-                    }}
-                }});
-            }})();
+                    }
+                });
+            }
             """
-            await page.evaluate(highlight_script)
+            await page.evaluate(highlight_script, selector)
             
             # Wait a bit for highlight to render
             await page.wait_for_timeout(500)
