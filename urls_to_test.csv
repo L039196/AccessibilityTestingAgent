@@ -1,10 +1,2 @@
 url,name,requiresAuth,mfaTemplate
-https://www.lilly.com/,Lilly Homepage,false,
-https://www.lilly.com/lillydirect,Lilly Direct,false,
-https://www.lilly.com/science/clinical-trials,Clinical Trials,false,
-https://www.lilly.com/conditions/cancer,Cancer Conditions,false,
-https://www.lilly.com/science,Science Page,false,
-https://www.lilly.com/news,News Page,false,
-https://www.lilly.com/about,About Page,false,
-https://feature.dev.chat.lilly.com/cortex/chat/claude3,Claude Chat (Protected),true,lilly
-https://feature.dev.chat.lilly.com/cortex/chat/gemini,Gemini Chat (Protected),true,lilly
+https://ldr.lilly.com/test/9453197_en_v005/d/r/story.html,Test Story,true,lilly

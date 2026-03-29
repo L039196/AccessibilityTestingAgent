@@ -17,11 +17,17 @@ class TestConfig:
     @classmethod
     def from_csv_row(cls, row: Dict[str, str]) -> 'TestConfig':
         """Create TestConfig from a CSV row dictionary"""
+        # Handle None values gracefully (can happen with trailing commas or empty fields)
+        url = row.get('url', '') or ''
+        name = row.get('name', '') or ''
+        requires_auth_str = row.get('requiresAuth', '') or ''
+        mfa_template = row.get('mfaTemplate', '') or ''
+        
         return cls(
-            url=row.get('url', '').strip(),
-            name=row.get('name', '').strip(),
-            requires_auth=row.get('requiresAuth', '').lower() == 'true',
-            mfa_template=row.get('mfaTemplate', '').strip()
+            url=url.strip() if url else '',
+            name=name.strip() if name else '',
+            requires_auth=requires_auth_str.strip().lower() == 'true' if requires_auth_str else False,
+            mfa_template=mfa_template.strip() if mfa_template else ''
         )
 
 def load_enhanced_csv(csv_path: str) -> List[TestConfig]:
