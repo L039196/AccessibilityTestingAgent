@@ -208,6 +208,13 @@ class Agent:
                 # Convert URLs/TestConfigs to test configs dict format
                 test_configs = self._create_test_configs_from_input(urls_to_test)
                 self.logger.info(f"Loaded {len(test_configs)} test configurations")
+                
+                # Check if we need dynamic auth detection (simple CSV with all public URLs)
+                has_explicit_auth = any(tc.get('requiresAuth') for tc in test_configs)
+                use_dynamic_detection = not has_explicit_auth
+                
+                if use_dynamic_detection:
+                    print("ℹ️  Simple CSV detected - will auto-detect authentication requirements")
 
                 # Run tests for each device type
                 for device_type in self.config.device_types:
@@ -219,8 +226,12 @@ class Agent:
                     # Add progress bar
                     with tqdm(total=len(test_configs), desc=f"Analyzing Pages ({device_type})") as pbar:
                         try:
-                            # 2. Visual Testing Agent Pattern: Group by MFA template and run with shared context
-                            await self._run_tests_grouped_by_mfa(p, test_configs, device_type, pbar)
+                            if use_dynamic_detection:
+                                # Use dynamic auth detection for simple CSVs
+                                await self._run_tests_with_dynamic_auth_detection(p, test_configs, device_type, pbar)
+                            else:
+                                # Use static grouping for enhanced CSVs with explicit auth flags
+                                await self._run_tests_grouped_by_mfa(p, test_configs, device_type, pbar)
                         except Exception as e:
                             self.logger.error(f"Error testing device type {device_type}: {e}", exc_info=True)
                             print(f"❌ Error testing {device_type}: {e}")
@@ -419,6 +430,26 @@ class Agent:
                 # Step 7: Run all tests in this group using parallel tabs
                 await self._run_parallel_tests_in_shared_context(browser, shared_context, tests, device_type, pbar)
                 
+            except AuthenticationError as e:
+                # Authentication failed - mark all tests in this group as failed
+                self.logger.error(f"Authentication failed for {mfa_template} group: {e}")
+                print(f"\n❌ Authentication failed for {mfa_template.upper()} group")
+                print(f"   Skipping {len(tests)} protected URLs")
+                print(f"   Please configure SSO credentials in Settings and try again")
+                
+                # Add failed results for all tests in this group
+                for test in tests:
+                    self.results[device_type].append({
+                        'url': test['url'],
+                        'name': test.get('name', test['url']),
+                        'violations': [],
+                        'error': f"❌ SSO Authentication Required: {str(e)}",
+                        'error_type': 'AuthenticationError',
+                        'authentication_failed': True,
+                        'auth_group': mfa_template
+                    })
+                    pbar.update(1)  # Update progress bar for skipped tests
+                    
             finally:
                 # Clean up browser
                 await browser.close()
@@ -445,6 +476,26 @@ class Agent:
                 # Step 5: Run all tests in this group using parallel tabs
                 await self._run_parallel_tests_in_shared_context(browser, shared_context, tests, device_type, pbar)
                 
+            except AuthenticationError as e:
+                # Authentication failed - mark all tests in this group as failed
+                self.logger.error(f"Authentication failed for {mfa_template} group: {e}")
+                print(f"\n❌ Authentication failed for {mfa_template.upper()} group")
+                print(f"   Skipping {len(tests)} protected URLs")
+                print(f"   Please configure SSO credentials in Settings and try again")
+                
+                # Add failed results for all tests in this group
+                for test in tests:
+                    self.results[device_type].append({
+                        'url': test['url'],
+                        'name': test.get('name', test['url']),
+                        'violations': [],
+                        'error': f"❌ SSO Authentication Required: {str(e)}",
+                        'error_type': 'AuthenticationError',
+                        'authentication_failed': True,
+                        'auth_group': mfa_template
+                    })
+                    pbar.update(1)  # Update progress bar for skipped tests
+                    
             finally:
                 # Clean up browser
                 await browser.close()
@@ -599,6 +650,11 @@ class Agent:
             except (TransientNavigationError, TransientAnalysisError) as e:
                 # These are retryable errors
                 raise
+            
+            except AuthenticationError as e:
+                # Authentication errors are NOT retryable - fail immediately
+                self.logger.error(f"Authentication failed for {url}: {str(e)}")
+                raise
                 
             except Exception as e:
                 # Non-retryable errors
@@ -619,6 +675,18 @@ class Agent:
                 test_with_retry,
                 retryable_exceptions=(TransientNavigationError, TransientAnalysisError)
             )
+        except AuthenticationError as e:
+            # Authentication errors are FATAL - mark test as failed with clear error
+            log_test_error(self.logger, url, e, 0, tab_index)  # 0 retries for auth errors
+            return {
+                'url': url,
+                'name': test_config.get('name', url),
+                'violations': [],
+                'error': f"❌ {str(e)}",
+                'error_type': 'AuthenticationError',
+                'authentication_failed': True,
+                'retries_exhausted': False
+            }
         except Exception as e:
             # All retries exhausted or non-retryable error
             log_test_error(self.logger, url, e, self.config.max_retries, tab_index)
