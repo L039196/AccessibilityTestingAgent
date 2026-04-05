@@ -15,7 +15,13 @@ class MFATemplates:
     def get_templates() -> Dict[str, Dict[str, Any]]:
         """
         Get all available MFA templates
+        Read credentials from environment variables for UI integration
         """
+        # Read from environment variables (passed from UI via PythonBridge)
+        # Fall back to hardcoded service account if not provided
+        automation_email = os.getenv("AUTOMATION_EMAIL", "SPE_AUTOMATION_ACC@elililly.onmicrosoft.com")
+        sso_password = os.getenv("SSO_PASSWORD", "-Br985sGo6P,;E#V")
+        
         return {
             "lilly": {
                 "projectName": "Eli Lilly and Company",
@@ -34,8 +40,8 @@ class MFATemplates:
                     ]
                 },
                 "credentials": {
-                    "username": os.getenv("AUTOMATION_EMAIL", "SPE_AUTOMATION_ACC@elililly.onmicrosoft.com"),
-                    "password": os.getenv("SSO_PASSWORD", "-Br985sGo6P,;E#V"),
+                    "username": automation_email,
+                    "password": sso_password,
                     "domain": "elililly.onmicrosoft.com",
                     "accountType": "service",
                     "automationEnabled": True

@@ -80,17 +80,26 @@ class ReportGenerator:
         # 1. Calculate summary statistics
         total_pages = len(results)
         pages_with_violations = 0
+        pages_with_errors = 0
+        auth_failed_pages = 0
         total_violations = 0
         impact_counts = {"critical": 0, "serious": 0, "moderate": 0, "minor": 0}
         
         for result in results:
-            if result.get('violations'):
+            if result.get('error'):
+                pages_with_errors += 1
+                if result.get('authentication_failed'):
+                    auth_failed_pages += 1
+            elif result.get('violations'):
                 pages_with_violations += 1
                 total_violations += len(result['violations'])
                 for violation in result['violations']:
                     impact = violation.get('impact')
                     if impact in impact_counts:
                         impact_counts[impact] += 1
+
+        # Calculate successfully scanned pages (total - auth failures)
+        pages_scanned_successfully = total_pages - auth_failed_pages
 
         # 2. Build HTML content with device type information
         device_title = device_type.replace("_", " ").title()
@@ -101,6 +110,12 @@ class ReportGenerator:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Accessibility Report ({device_title}) for {base_url}</title>
+    <!-- Metadata for parsing by automation tools -->
+    <meta name="accessibility-report-total-pages" content="{total_pages}">
+    <meta name="accessibility-report-scanned-successfully" content="{pages_scanned_successfully}">
+    <meta name="accessibility-report-auth-failures" content="{auth_failed_pages}">
+    <meta name="accessibility-report-pages-with-violations" content="{pages_with_violations}">
+    <meta name="accessibility-report-pages-with-errors" content="{pages_with_errors}">
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f8f9fa; color: #212529; }}
         .container {{ display: flex; }}
@@ -155,7 +170,7 @@ class ReportGenerator:
         for i, result in enumerate(results):
             page_id = f"page-{i}"
             url = result['url']
-            status_icon = "❌" if result.get('violations') else "✅"
+            status_icon = "❌" if result.get('error') else ("⚠️" if result.get('violations') else "✅")
             html_content += f'<li><a href="#{page_id}">{status_icon} {url.split("/")[-1] or "Homepage"}</a></li>'
         
         html_content += f"""
@@ -163,6 +178,20 @@ class ReportGenerator:
         </div>
         <div id="main-content">
             <h1>Accessibility Report <span class="device-badge">{device_title}</span></h1>
+            
+            {f'''<div class="summary-card" style="background-color: #fff3cd; border-color: #ffc107;">
+                <h2 style="color: #856404;">⚠️ Authentication Required</h2>
+                <p style="color: #856404; margin: 10px 0;">
+                    <strong>{auth_failed_pages}</strong> page(s) require SSO authentication and could not be tested.
+                </p>
+                <p style="color: #856404; margin: 10px 0;">
+                    <strong>Action Required:</strong> Configure SSO credentials in Settings (⚙️ icon) → Test Username & Test Password
+                </p>
+                <p style="color: #6c757d; font-size: 0.9rem; margin: 10px 0;">
+                    Note: Public pages were tested successfully. Re-run the test after configuring credentials to test protected pages.
+                </p>
+            </div>''' if auth_failed_pages > 0 else ''}
+            
             <div class="summary-card">
                 <h2>Executive Summary ({device_title})</h2>
                 <div class="summary-grid">
@@ -173,6 +202,10 @@ class ReportGenerator:
                     <div class="summary-item">
                         <h4>Pages with Violations</h4>
                         <p>{pages_with_violations}</p>
+                    </div>
+                    <div class="summary-item">
+                        <h4>Failed Pages</h4>
+                        <p style="color: #dc3545;">{pages_with_errors}</p>
                     </div>
                     <div class="summary-item">
                         <h4>Total Violations</h4>
@@ -214,9 +247,24 @@ class ReportGenerator:
             html_content += f'<div id="{page_id}" class="page-report"><div class="page-header"><h2><a href="{url}" target="_blank">{url}</a>{device_info}</h2></div>'
             html_content += '<div class="page-content">'
 
-            if not violations:
+            # Check for errors (e.g., authentication failures)
+            if result.get('error'):
+                error_msg = result['error']
+                error_type = result.get('error_type', 'Error')
+                is_auth_error = result.get('authentication_failed', False)
+                
+                error_style = 'background-color: #fee; border-left: 5px solid #dc3545; padding: 15px; border-radius: 5px; margin-bottom: 10px;'
+                html_content += f'<div style="{error_style}">'
+                html_content += f'<h3 style="color: #dc3545; margin-top: 0;">❌ {error_type}</h3>'
+                html_content += f'<p><strong>Error:</strong> {error_msg}</p>'
+                if is_auth_error:
+                    html_content += '<p><strong>Action Required:</strong> Please verify your SSO credentials in Settings are correct.</p>'
+                    html_content += '<p><em>Note: This page requires authentication. The test failed before analyzing accessibility.</em></p>'
+                html_content += '</div>'
+            elif not violations:
                 html_content += "<p>✅ No accessibility violations found.</p>"
-            else:
+            
+            if violations:
                 for violation in violations:
                     impact = violation.get('impact', 'unknown')
                     html_content += f'<details class="violation-details impact-{impact}">'

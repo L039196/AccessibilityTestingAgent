@@ -23,7 +23,8 @@
       "password": "env:SSO_PASSWORD",
       "domain": "elililly.onmicrosoft.com",
       "accountType": "service",
-      "automationEnabled": true
+      "automationEnabled": true,
+      "note": "SSO credentials are passed from Node.js UI Settings -> PythonBridge -> Environment Variables"
     },
     "mfaConfig": {
       "type": "service-account",
