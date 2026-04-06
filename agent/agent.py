@@ -213,8 +213,16 @@ class Agent:
                 has_explicit_auth = any(tc.get('requiresAuth') for tc in test_configs)
                 use_dynamic_detection = not has_explicit_auth
                 
+                # Debug logging
+                print(f"\n🔍 Auth Detection Mode:")
+                print(f"   URLs with explicit auth: {sum(1 for tc in test_configs if tc.get('requiresAuth'))}")
+                print(f"   Total URLs: {len(test_configs)}")
+                print(f"   Use dynamic detection: {use_dynamic_detection}")
+                
                 if use_dynamic_detection:
                     print("ℹ️  Simple CSV detected - will auto-detect authentication requirements")
+                else:
+                    print("✅ Enhanced CSV detected - using explicit auth flags from CSV")
 
                 # Run tests for each device type
                 for device_type in self.config.device_types:
@@ -290,6 +298,9 @@ class Agent:
                     'requiresAuth': item.requires_auth,
                     'mfaTemplate': item.mfa_template if item.requires_auth else 'public'
                 }
+                # Debug logging
+                auth_marker = "🔒" if item.requires_auth else "🌐"
+                print(f"   {auth_marker} {item.url[:60]}... requiresAuth={item.requires_auth}")
             elif isinstance(item, str):
                 # Simple URL string - assume public
                 config = {
