@@ -506,7 +506,8 @@ class LocalAnalyzer:
         print("🔬 Running axe-core accessibility scan...")
         
         # Run axe-core analysis with all content now visible
-        results = await self.axe.run(page, context=self.axe_rules)
+        # CRITICAL FIX: Use 'options' parameter (not 'context') to pass axe rules
+        results = await self.axe.run(page, options=self.axe_rules)
         
         violations = results['violations']
 
