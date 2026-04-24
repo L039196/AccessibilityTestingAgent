@@ -129,6 +129,52 @@ class Agent:
         
         self.logger.info(f"Agent initialized with {len(config.device_types)} device types, max_workers={config.max_workers}")
 
+    def _get_browser_executable_path(self) -> Optional[str]:
+        """
+        Get the browser executable path for Docker/Alpine environments.
+        Returns None for local development (uses Playwright's bundled browsers).
+        """
+        # Check for Alpine Linux / Docker environment
+        chromium_paths = [
+            os.getenv('CHROMIUM_PATH'),
+            os.getenv('CHROME_BIN'),
+            os.getenv('PUPPETEER_EXECUTABLE_PATH'),
+            '/usr/bin/chromium-browser',  # Alpine Linux
+            '/usr/bin/chromium',          # Some Linux distros
+        ]
+        
+        for path in chromium_paths:
+            if path and os.path.isfile(path):
+                self.logger.info(f"Using system Chromium: {path}")
+                return path
+        
+        # Return None to use Playwright's bundled browsers (local development)
+        return None
+
+    def _get_browser_launch_args(self) -> dict:
+        """
+        Get browser launch arguments with proper executable path for Docker/Alpine.
+        """
+        launch_args = {
+            'headless': self.config.headless,
+            'args': [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ]
+        }
+        
+        # Add executable_path for Docker/Alpine environments
+        executable_path = self._get_browser_executable_path()
+        if executable_path:
+            launch_args['executable_path'] = executable_path
+            self.logger.info(f"Browser launch config: executable_path={executable_path}")
+        else:
+            self.logger.info("Browser launch config: using Playwright bundled browser")
+        
+        return launch_args
+
     def _cleanup_old_results(self, device_type: str = None):
         """
         Clean up old screenshots and HTML reports before starting a new test run.
@@ -399,7 +445,7 @@ class Agent:
         """
         # Step 1: Launch ONE browser for detection
         print(f"🔍 Detecting authentication requirements for {len(test_configs)} URLs...")
-        browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+        browser = await playwright_instance.chromium.launch(**self._get_browser_launch_args())
         
         try:
             # Step 2: Try each URL to detect auth requirements
@@ -432,7 +478,7 @@ class Agent:
             print(f"{'='*60}")
             
             # Step 5: Launch ONE browser per group
-            browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+            browser = await playwright_instance.chromium.launch(**self._get_browser_launch_args())
             
             try:
                 # Step 6: Authenticate if needed (creates shared context)
@@ -478,7 +524,7 @@ class Agent:
             print(f"\n🔐 Processing {mfa_template} group ({len(tests)} tests)")
             
             # Step 3: Launch ONE browser per group
-            browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+            browser = await playwright_instance.chromium.launch(**self._get_browser_launch_args())
             
             try:
                 # Step 4: Authenticate if needed (creates shared context)
@@ -713,7 +759,7 @@ class Agent:
     async def _crawl(self, playwright_instance) -> List[str]:
         """Crawl the website to find all pages to test."""
         print("Launching crawler browser...")
-        crawler_browser = await playwright_instance.chromium.launch(headless=True)
+        crawler_browser = await playwright_instance.chromium.launch(**self._get_browser_launch_args())
         page = await crawler_browser.new_page()
         try:
             urls = await self.crawler.crawl(page)
@@ -735,7 +781,7 @@ class Agent:
         print(f"🚀 Launching browser for {device_type} testing...")
         
         # Step 1: Launch ONE browser
-        browser = await playwright_instance.chromium.launch(headless=self.config.headless)
+        browser = await playwright_instance.chromium.launch(**self._get_browser_launch_args())
         
         try:
             # Step 2: Authenticate SSO if needed (creates authenticated context)
