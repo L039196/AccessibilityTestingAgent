@@ -172,4 +172,30 @@ if __name__ == "__main__":
     if args.parallel:
         parallel = args.parallel.lower() == "true"
     
-    asyncio.run(main(args.url, args.max_pages, args.config, args.csv, args.device, args.device_name, headless, parallel, args.max_workers, args.additional_workers, args.sso, args.sso_provider))
+    # Wrap execution in try-except to provide user-friendly error messages
+    try:
+        asyncio.run(main(args.url, args.max_pages, args.config, args.csv, args.device, args.device_name, headless, parallel, args.max_workers, args.additional_workers, args.sso, args.sso_provider))
+    except FileNotFoundError as e:
+        print(f"❌ ERROR: File not found - {str(e)}", flush=True)
+        print(f"💡 Make sure the CSV file and config.json exist in the correct location.", flush=True)
+        import sys
+        sys.exit(1)
+    except ValueError as e:
+        print(f"❌ ERROR: Invalid configuration - {str(e)}", flush=True)
+        print(f"💡 Check your CSV file format and command-line arguments.", flush=True)
+        import sys
+        sys.exit(1)
+    except ImportError as e:
+        print(f"❌ ERROR: Missing Python dependency - {str(e)}", flush=True)
+        print(f"💡 Run: cd AccessibilityTestingAgent && ./venv/bin/pip install -r requirements.txt", flush=True)
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ ERROR: Unexpected error during accessibility scan", flush=True)
+        print(f"❌ Error type: {type(e).__name__}", flush=True)
+        print(f"❌ Error details: {str(e)}", flush=True)
+        import traceback
+        print(f"❌ Stack trace:", flush=True)
+        traceback.print_exc()
+        import sys
+        sys.exit(1)
