@@ -385,12 +385,17 @@ class Agent:
             context = await browser.new_context(**context_options)
             page = await context.new_page()
             
-            # Try to navigate to the URL with better wait strategy
-            response = await page.goto(url, wait_until="networkidle", timeout=30000)
-            
-            # Wait for page to be fully stable
-            await page.wait_for_load_state("domcontentloaded", timeout=5000)
-            await page.wait_for_timeout(1500)
+            # Try to navigate with generous timeout for auth detection
+            # Don't fail - just continue with partial page load
+            try:
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                self.logger.debug(f"Auth detection: Navigation successful for {url}")
+                # Brief wait for any redirects
+                await page.wait_for_timeout(2000)
+            except Exception as e:
+                self.logger.warning(f"Auth detection: Navigation timeout for {url}, checking URL anyway: {str(e)[:100]}")
+                # Continue anyway - we can still check the URL for auth redirects
+                await page.wait_for_timeout(1000)
             
             # Get the current URL after any redirects
             current_url = page.url
@@ -664,22 +669,20 @@ class Agent:
                 auth_status = "🔐" if test_config['requiresAuth'] else ""
                 print(f"{auth_status} Tab-{tab_index+1}: Testing {url}")
                 
-                # Navigate to URL with proper error handling
-                timeout = 60000 if test_config['requiresAuth'] else 30000
+                # Navigate to URL with generous timeout and resilient error handling
+                timeout = 60000 if test_config['requiresAuth'] else 45000
                 try:
-                    # Use networkidle for better page load detection
-                    await page.goto(url, wait_until="networkidle", timeout=timeout)
+                    # Try domcontentloaded first (most reliable for slow sites)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                    self.logger.debug(f"Navigation successful with domcontentloaded for {url}")
                     
-                    # For authenticated pages, wait for dynamic content to fully load
-                    if test_config['requiresAuth']:
-                        # Wait for page to be stable
-                        await page.wait_for_load_state("networkidle", timeout=10000)
-                        # Additional wait for any client-side rendering
-                        await asyncio.sleep(2)
+                    # Brief wait for dynamic content
+                    await page.wait_for_timeout(2000)
                         
                 except TimeoutError as e:
                     self.logger.warning(f"Navigation timeout for {url}, continuing with partial page load")
-                    raise TransientNavigationError(f"Timeout loading {url}", url=url)
+                    # Don't raise - continue with whatever is loaded
+                    await page.wait_for_timeout(1000)
                     
                 except Exception as e:
                     error_msg = str(e)
@@ -881,13 +884,21 @@ class Agent:
             auth_status = "🔐" if self.authenticated_context else ""
             print(f"{auth_status} Tab-{tab_index+1}: Testing {url}")
             
-            # Navigate to the URL
+            # Navigate to the URL with fallback strategy
             timeout = 60000 if self.authenticated_context else 30000
             try:
+                # Try networkidle first
                 await page.goto(url, wait_until="networkidle", timeout=timeout)
+                self.logger.debug(f"Tab-{tab_index+1}: Navigation successful with networkidle for {url}")
             except Exception as e:
-                print(f"⚠️  Tab-{tab_index+1}: Navigation warning: {str(e)[:100]}")
-                # Continue with analysis anyway
+                self.logger.warning(f"Tab-{tab_index+1}: Networkidle timeout, falling back to domcontentloaded")
+                try:
+                    # Fallback to domcontentloaded
+                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout // 2)
+                    self.logger.info(f"Tab-{tab_index+1}: Navigation successful with domcontentloaded for {url}")
+                except Exception as e2:
+                    print(f"⚠️  Tab-{tab_index+1}: Navigation warning: {str(e2)[:100]}")
+                    # Continue with analysis anyway
             
             # Run accessibility analysis
             violations = await self.analyzer.find_issues(page, device_type, "default")
