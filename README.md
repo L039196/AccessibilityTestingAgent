@@ -23,6 +23,7 @@ The Automated Accessibility Testing Agent provides comprehensive multi-device ac
 - **🔄 Consistent Browser Engine**: All parallel workers use Chromium for reliability
 - **☁️ S3 Integration**: Cloud storage for reports with automatic cleanup and lifecycle policies
 - **🌐 BrowserStack Support**: Test on real iOS/Android devices remotely
+- **💻 Code Fix Generator**: Before/after code snippets with exact fixes for developers
 
 ## 📁 Results Structure
 
@@ -145,6 +146,87 @@ npm run test:local:tablet
 - **Setup Guide**: [docs/S3_SETUP_GUIDE.md](docs/S3_SETUP_GUIDE.md)
 - **NPM Scripts**: [docs/S3_NPM_SCRIPTS.md](docs/S3_NPM_SCRIPTS.md)
 - **Quick Reference**: [docs/S3_QUICK_REFERENCE.md](docs/S3_QUICK_REFERENCE.md)
+
+## 💻 Code Fix Generator (NEW!)
+
+### Overview
+The accessibility report now includes **exact code snippets** with **before/after comparisons** for every violation, making it easy for developers to copy-paste fixes directly into their codebase.
+
+### Features
+- **✅ Exact HTML Snippets**: Shows the problematic code as found in your application
+- **✅ Copy-Paste Fixes**: Provides corrected code ready to use
+- **✅ Step-by-Step Instructions**: Clear guidance on how to apply each fix
+- **✅ WCAG References**: Links to official documentation for learning
+- **✅ CSS Fixes**: For color contrast issues, includes CSS code changes
+- **✅ One-Click Copy**: Copy button to grab fixed code instantly
+
+### Supported Violations (20+ patterns)
+The code fix generator provides automatic fixes for:
+
+#### Form Controls
+- **button-name**: Buttons missing accessible names (aria-label)
+- **label**: Input fields missing labels
+- **input-button-name**: Input buttons missing value attribute
+
+#### Images
+- **image-alt**: Images missing alt text
+- **image-redundant-alt**: Alt text containing redundant words
+
+#### Links
+- **link-name**: Links missing accessible text
+
+#### Color & Contrast
+- **color-contrast**: Insufficient text/background contrast (with CSS fixes)
+
+#### ARIA
+- **aria-required-attr**: Missing required ARIA attributes
+- **aria-valid-attr-value**: Invalid ARIA attribute values
+
+#### Structure
+- **heading-order**: Incorrect heading hierarchy
+- **listitem**: List items not in lists
+- **region**: Content not in landmark regions
+
+### Example Output
+
+Each violation in the HTML report now includes:
+
+```html
+💡 How to Fix: Icon buttons need aria-label to describe their action
+
+❌ Current Code (With Issue)
+<button onclick="submit()">
+  <img src="icon.png" alt="">
+</button>
+
+✅ Fixed Code (Copy This)
+<button aria-label="Submit form" onclick="submit()">
+  <img src="icon.png" alt="" aria-hidden="true">
+</button>
+
+[📋 Copy Fixed Code Button]
+
+📝 Steps to Apply Fix:
+1. Add aria-label with descriptive text
+2. If button contains decorative icon, add aria-hidden='true' to the icon
+
+📚 WCAG Criterion: 4.1.2 Name, Role, Value (Level A)
+```
+
+### Using the Code Fixes
+
+1. **Open HTML Report**: Run accessibility tests and open the generated HTML report
+2. **Find Violation**: Navigate to any violation in the report
+3. **Review Fix**: Scroll down to see the "How to Fix" section with code comparison
+4. **Copy Code**: Click "📋 Copy Fixed Code" button
+5. **Paste & Test**: Replace the problematic code in your codebase
+6. **Verify**: Re-run tests to confirm the issue is resolved
+
+### Technical Details
+- **Rule-Based Engine**: 20+ violation patterns with pre-built fixes
+- **Context-Aware**: Fixes adapt based on element type and attributes
+- **Smart Detection**: Identifies icon buttons, decorative images, etc.
+- **Future Enhancement**: AI-powered fixes using Cortex for complex cases
 
 ## 🚀 Testing Commands
 

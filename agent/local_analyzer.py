@@ -512,22 +512,11 @@ class LocalAnalyzer:
         violations = results['violations']
 
         # Screenshot directory was already set up and cleaned at the start
-        # Limit screenshots to prevent infinite loops and resource exhaustion
-        max_screenshots_per_page = 10
+        # NO LIMITS - Capture screenshot for EVERY violation node
         screenshot_count = 0
 
         for violation in violations:
-            if screenshot_count >= max_screenshots_per_page:
-                print(f"⚠️ Screenshot limit reached ({max_screenshots_per_page}), skipping remaining violations")
-                break
-                
-            # Limit screenshots per violation to prevent too many
-            max_screenshots_per_violation = 3
-            violation_screenshot_count = 0
-            
             for node in violation['nodes']:
-                if screenshot_count >= max_screenshots_per_page or violation_screenshot_count >= max_screenshots_per_violation:
-                    break
                     
                 try:
                     # Generate screenshot filename
@@ -545,8 +534,7 @@ class LocalAnalyzer:
                     if captured_path and await self._validate_screenshot(captured_path):
                         node['screenshot'] = captured_path
                         screenshot_count += 1
-                        violation_screenshot_count += 1
-                        print(f"✓ Screenshot captured for violation element ({screenshot_count}/{max_screenshots_per_page})")
+                        print(f"✓ Screenshot {screenshot_count} captured for violation element")
                     else:
                         node['screenshot'] = None
                     
@@ -776,28 +764,53 @@ class LocalAnalyzer:
                     const highlight = document.createElement('div');
                     const rect = element.getBoundingClientRect();
                     if (rect.width > 0 && rect.height > 0) {
-                        highlight.style.position = 'fixed';
-                        highlight.style.left = rect.left + 'px';
-                        highlight.style.top = rect.top + 'px';
-                        highlight.style.width = rect.width + 'px';
-                        highlight.style.height = rect.height + 'px';
-                        highlight.style.border = '2px solid red';
-                        highlight.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
-                        highlight.style.zIndex = '999999';
-                        highlight.style.pointerEvents = 'none';
+                        highlight.style.cssText = `
+                            position: fixed !important;
+                            left: ${rect.left}px !important;
+                            top: ${rect.top}px !important;
+                            width: ${rect.width}px !important;
+                            height: ${rect.height}px !important;
+                            border: 4px solid red !important;
+                            background-color: rgba(255, 0, 0, 0.15) !important;
+                            z-index: 2147483647 !important;
+                            pointer-events: none !important;
+                            box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.1) !important;
+                        `;
                         highlight.className = 'accessibility-highlight';
-                        document.body.appendChild(highlight);
+                        
+                        // Ensure body exists before appending
+                        if (document.body) {
+                            document.body.appendChild(highlight);
+                        } else {
+                            // Fallback: append to documentElement
+                            document.documentElement.appendChild(highlight);
+                        }
                     }
                 }
             }
             """
             await element.evaluate(highlight_script)
             
-            # Shorter wait to prevent hanging
-            await page.wait_for_timeout(200)
+            # Wait for highlight to render
+            await page.wait_for_timeout(300)
         except Exception as e:
-            # Silently fail highlighting to prevent spam
-            pass
+            # Try alternative highlighting method if first fails
+            try:
+                print(f"First highlight method failed, trying alternative: {e}")
+                await page.evaluate("""
+                    (selector) => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el && el.getBoundingClientRect) {
+                                el.style.cssText = (el.style.cssText || '') + 
+                                    'outline: 4px solid red !important; outline-offset: 2px !important; background-color: rgba(255, 0, 0, 0.1) !important;';
+                            }
+                        });
+                    }
+                """, await element.evaluate("(el) => el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + el.className.split(' ')[0] : '')"))
+                await page.wait_for_timeout(300)
+            except:
+                pass  # Silent fail if both methods don't work
 
     def _simplify_selector(self, selector: str) -> str:
         """
@@ -878,20 +891,31 @@ class LocalAnalyzer:
             (selector) => {
                 const elements = document.querySelectorAll(selector);
                 elements.forEach(el => {
-                    if (el) {
+                    if (el && el.getBoundingClientRect) {
                         const rect = el.getBoundingClientRect();
-                        const highlight = document.createElement('div');
-                        highlight.style.position = 'fixed';
-                        highlight.style.left = rect.left + 'px';
-                        highlight.style.top = rect.top + 'px';
-                        highlight.style.width = Math.max(rect.width, 10) + 'px';
-                        highlight.style.height = Math.max(rect.height, 10) + 'px';
-                        highlight.style.border = '3px solid red';
-                        highlight.style.backgroundColor = 'rgba(255, 0, 0, 0.2)';
-                        highlight.style.zIndex = '10000';
-                        highlight.style.pointerEvents = 'none';
-                        highlight.className = 'accessibility-highlight';
-                        document.body.appendChild(highlight);
+                        if (rect.width > 0 && rect.height > 0) {
+                            const highlight = document.createElement('div');
+                            highlight.style.cssText = `
+                                position: fixed !important;
+                                left: ${rect.left}px !important;
+                                top: ${rect.top}px !important;
+                                width: ${Math.max(rect.width, 10)}px !important;
+                                height: ${Math.max(rect.height, 10)}px !important;
+                                border: 5px solid red !important;
+                                background-color: rgba(255, 0, 0, 0.2) !important;
+                                z-index: 2147483647 !important;
+                                pointer-events: none !important;
+                                box-sizing: border-box !important;
+                            `;
+                            highlight.className = 'accessibility-highlight';
+                            
+                            // Ensure document.body exists
+                            if (document.body) {
+                                document.body.appendChild(highlight);
+                            } else if (document.documentElement) {
+                                document.documentElement.appendChild(highlight);
+                            }
+                        }
                     }
                 });
             }
