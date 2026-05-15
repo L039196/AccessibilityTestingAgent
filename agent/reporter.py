@@ -1,9 +1,14 @@
 import json
 import os
 from typing import List, Dict, Any
+from .violation_fixer import ViolationFixer
 
 class ReportGenerator:
     """Generates an accessibility report from a list of violations."""
+    
+    def __init__(self):
+        """Initialize reporter with violation fixer."""
+        self.fixer = ViolationFixer()
     
     def generate_report(self, results: List[Dict[str, Any]], base_url: str, report_format: str, device_type: str = "desktop") -> str:
         """
@@ -159,7 +164,183 @@ class ReportGenerator:
         code {{ background-color: #e9ecef; padding: 2px 5px; border-radius: 3px; font-size: 0.9rem; display: block; white-space: pre-wrap; word-break: break-all;}}
         .node-details {{ padding: 10px; border: 1px solid #e9ecef; border-radius: 4px; margin-top: 10px; }}
         .screenshot {{ max-width: 100%; height: auto; border: 1px solid #dee2e6; border-radius: 5px; margin-top: 10px; }}
+        
+        /* Code Fix Section Styles - Vertical Stacked Layout */
+        .code-fix-section {{ margin-top: 25px; padding: 25px; background: linear-gradient(to bottom, #f8f9fa, #ffffff); border-radius: 10px; border: 3px solid #28a745; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+        
+        .fix-explanation {{ font-size: 1.1rem; color: #155724; background-color: #d4edda; padding: 15px 20px; border-radius: 8px; margin-bottom: 25px; border-left: 5px solid #28a745; font-weight: 500; }}
+        
+        /* Vertical stacking - one section on top of the other */
+        .code-comparison {{ margin: 20px 0; display: block; }}
+        
+        .code-before, .code-after {{ 
+            background: #fff; 
+            border-radius: 8px; 
+            overflow: hidden; 
+            box-shadow: 0 3px 6px rgba(0,0,0,0.12); 
+            margin-bottom: 20px;
+            border: 2px solid #dee2e6;
+        }}
+        
+        .code-header {{ 
+            padding: 15px 20px; 
+            font-weight: 700; 
+            font-size: 1.1rem; 
+            border-bottom: 3px solid #dee2e6;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        
+        .code-before .code-header {{ 
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c2c7 100%); 
+            color: #721c24; 
+            border-bottom-color: #dc3545;
+        }}
+        
+        .code-after .code-header {{ 
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+            color: #155724; 
+            border-bottom-color: #28a745;
+        }}
+        
+        .code-before pre, .code-after pre {{ 
+            margin: 0; 
+            padding: 20px; 
+            background: #f8f9fa; 
+            overflow-x: auto; 
+            max-height: 500px;
+            border-top: 1px solid #e9ecef;
+        }}
+        
+        .code-before code, .code-after code {{ 
+            font-family: 'SF Mono', 'Monaco', 'Menlo', 'Courier New', monospace; 
+            font-size: 0.95rem; 
+            line-height: 1.7; 
+            display: block;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }}
+        
+        .copy-button {{ 
+            display: block; 
+            width: calc(100% - 40px); 
+            margin: 0 20px 20px 20px; 
+            padding: 14px 20px; 
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 700; 
+            font-size: 1.05rem; 
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+        }}
+        
+        .copy-button:hover {{ 
+            background: linear-gradient(135deg, #218838 0%, #1ea87a 100%); 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
+        }}
+        
+        .copy-button:active {{ 
+            background: #1e7e34; 
+            transform: translateY(0);
+        }}
+        
+        .css-fix {{ 
+            margin-top: 20px; 
+            background: #fff; 
+            border-radius: 8px; 
+            overflow: hidden; 
+            box-shadow: 0 3px 6px rgba(0,0,0,0.12); 
+            border: 2px solid #0d6efd;
+        }}
+        
+        .css-fix .code-header {{ 
+            background: linear-gradient(135deg, #cfe2ff 0%, #b6d4fe 100%); 
+            color: #084298; 
+            border-bottom-color: #0d6efd;
+        }}
+        
+        .css-fix pre {{ 
+            margin: 0; 
+            padding: 20px; 
+            background: #f8f9fa; 
+            overflow-x: auto; 
+        }}
+        
+        .fix-steps {{ 
+            margin-top: 20px; 
+            padding: 20px; 
+            background: #ffffff; 
+            border-radius: 8px; 
+            border-left: 5px solid #0d6efd;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }}
+        
+        .fix-steps strong {{ 
+            color: #0d6efd; 
+            font-size: 1.05rem; 
+        }}
+        
+        .fix-steps ol {{ 
+            margin: 15px 0 0 0; 
+            padding-left: 25px; 
+        }}
+        
+        .fix-steps li {{ 
+            margin: 12px 0; 
+            line-height: 1.7;
+            color: #495057;
+        }}
+        
+        .wcag-reference {{ 
+            margin-top: 20px; 
+            padding: 15px 20px; 
+            background: linear-gradient(135deg, #e7f3ff 0%, #d4e9ff 100%); 
+            border-radius: 8px; 
+            color: #004085; 
+            font-size: 1rem; 
+            border-left: 5px solid #007bff;
+            font-weight: 500;
+        }}
+        
+        .screenshot-wrapper {{ 
+            margin-top: 25px; 
+            padding: 20px; 
+            background: linear-gradient(to bottom, #ffffff, #f8f9fa); 
+            border-radius: 10px; 
+            border: 3px solid #007bff;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        
+        .screenshot-wrapper h4 {{ 
+            margin-top: 0; 
+            margin-bottom: 15px;
+            color: #007bff; 
+            font-size: 1.15rem;
+            font-weight: 700;
+        }}
     </style>
+    <script>
+    // Copy code to clipboard
+    function copyCode(button) {{
+        const code = button.getAttribute('data-code');
+        navigator.clipboard.writeText(code).then(() => {{
+            const originalText = button.textContent;
+            button.textContent = '✅ Copied!';
+            button.style.background = '#218838';
+            setTimeout(() => {{
+                button.textContent = originalText;
+                button.style.background = '#28a745';
+            }}, 2000);
+        }}).catch(err => {{
+            alert('Failed to copy code: ' + err);
+        }});
+    }}
+    </script>
 </head>
 <body>
     <div class="container">
@@ -275,7 +456,13 @@ class ReportGenerator:
                     html_content += "<h4>Affected Nodes:</h4>"
                     for node in violation['nodes']:
                         html_content += '<div class="node-details">'
-                        html_content += f"<code>{node['html']}</code>"
+                        
+                        # Generate fix suggestion
+                        fix = self.fixer.generate_fix(violation, node)
+                        if fix:
+                            html_content += self._render_code_fix(fix)
+                        
+                        # Display screenshot with clear wrapper
                         if node.get('screenshot'):
                             # Make screenshot path relative to the HTML file location
                             screenshot_path = node['screenshot']
@@ -290,7 +477,10 @@ class ReportGenerator:
                             else:
                                 # Already just a filename
                                 relative_path = f"screenshots/{screenshot_path}"
-                            html_content += f"<img src='{relative_path}' alt='Screenshot of the accessibility issue' class='screenshot'>"
+                            html_content += '<div class="screenshot-wrapper">'
+                            html_content += '<h4>📸 Element Screenshot (Highlighted)</h4>'
+                            html_content += f"<img src='{relative_path}' alt='Screenshot showing the problematic element highlighted in red' class='screenshot'>"
+                            html_content += '</div>'
                         html_content += '</div>'
                     html_content += "</div></details>"
             
@@ -303,6 +493,85 @@ class ReportGenerator:
 </html>
 """
         return html_content
+    
+    def _render_code_fix(self, fix: Dict[str, Any]) -> str:
+        """
+        Render before/after code comparison with fix explanation.
+        
+        Args:
+            fix: Dictionary with 'before', 'after', 'explanation', 'steps' keys
+            
+        Returns:
+            HTML string with styled code comparison
+        """
+        html = '<div class="code-fix-section">'
+        
+        # Explanation
+        html += f'<div class="fix-explanation"><strong>💡 How to Fix:</strong> {fix["explanation"]}</div>'
+        
+        # Before/After code comparison - Vertically stacked
+        html += '<div class="code-comparison">'
+        
+        # BEFORE code
+        html += '<div class="code-before">'
+        html += '<div class="code-header">❌ Current Code (With Issue)</div>'
+        html += f'<pre><code class="language-html">{self._escape_html(fix["before"])}</code></pre>'
+        html += '</div>'
+        
+        # AFTER code
+        html += '<div class="code-after">'
+        html += '<div class="code-header">✅ Fixed Code (Copy This)</div>'
+        html += f'<pre><code class="language-html">{self._escape_html(fix["after"])}</code></pre>'
+        html += f'<button class="copy-button" onclick="copyCode(this)" data-code="{self._escape_attr(fix["after"])}">📋 Copy Fixed Code</button>'
+        html += '</div>'
+        
+        html += '</div>'  # code-comparison
+        
+        # CSS fix if applicable (for color contrast issues)
+        if 'css_fix' in fix:
+            html += '<div class="css-fix">'
+            html += '<div class="code-header">🎨 CSS Changes Needed</div>'
+            html += f'<pre><code class="language-css">{self._escape_html(fix["css_fix"])}</code></pre>'
+            html += '</div>'
+        
+        # Step-by-step instructions
+        if fix.get('steps'):
+            html += '<div class="fix-steps">'
+            html += '<strong>📝 Steps to Apply Fix:</strong>'
+            html += '<ol>'
+            for step in fix['steps']:
+                html += f'<li>{step}</li>'
+            html += '</ol>'
+            html += '</div>'
+        
+        # WCAG reference
+        html += '<div class="wcag-reference">'
+        html += f'<strong>📚 WCAG Criterion:</strong> {fix.get("wcag_criterion", "See violation help URL")}'
+        html += '</div>'
+        
+        html += '</div>'  # code-fix-section
+        
+        return html
+    
+    def _escape_html(self, text: str) -> str:
+        """Escape HTML special characters for display in code blocks."""
+        return (text
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('"', '&quot;')
+                .replace("'", '&#39;'))
+    
+    def _escape_attr(self, text: str) -> str:
+        """Escape text for use in HTML attributes."""
+        return (text
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('"', '&quot;')
+                .replace("'", '&#39;')
+                .replace('\n', '&#10;')
+                .replace('\r', ''))
 
     def save_report(self, report_content: str, filename: str):
         """Saves the report to a file."""
