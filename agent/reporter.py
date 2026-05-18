@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import List, Dict, Any
 from .violation_fixer import ViolationFixer
 
@@ -453,35 +454,73 @@ class ReportGenerator:
                     html_content += '<div class="violation-body">'
                     html_content += f"<p><strong>Description:</strong> {violation['description']}</p>"
                     html_content += f'<p><strong>Help:</strong> <a href="{violation["helpUrl"]}" target="_blank">Learn more</a></p>'
-                    html_content += "<h4>Affected Nodes:</h4>"
+                    
+                    # Generate and deduplicate fixes first
+                    unique_fixes = {}
+                    unique_screenshots = {}  # Deduplicate screenshots by filename only
+                    
                     for node in violation['nodes']:
-                        html_content += '<div class="node-details">'
-                        
                         # Generate fix suggestion
                         fix = self.fixer.generate_fix(violation, node)
                         if fix:
-                            html_content += self._render_code_fix(fix)
+                            # Create unique key from violation ID + before/after code
+                            # This ensures we only show ONE fix per unique pattern
+                            before_code = fix.get('before', '').strip()
+                            after_code = fix.get('after', '').strip()
+                            
+                            # Normalize code by removing unique IDs to better deduplicate
+                            # (e.g., "panel_9173" and "panel_9172" are the same pattern)
+                            before_normalized = re.sub(r'id="[^"]*"', 'id="DYNAMIC"', before_code)
+                            after_normalized = re.sub(r'id="[^"]*"', 'id="DYNAMIC"', after_code)
+                            
+                            fix_key = f"{violation['id']}||{before_normalized}||{after_normalized}"
+                            
+                            if fix_key not in unique_fixes:
+                                unique_fixes[fix_key] = fix
                         
-                        # Display screenshot with clear wrapper
+                        # Collect and deduplicate screenshots by filename only
                         if node.get('screenshot'):
-                            # Make screenshot path relative to the HTML file location
                             screenshot_path = node['screenshot']
-                            # Extract just the filename from the full path
-                            # Path format: results/desktop/screenshots/screenshot_desktop_default_*.png
-                            # HTML location: results/desktop/accessibility_report.html
-                            # Relative path needed: screenshots/screenshot_desktop_default_*.png
+                            
+                            # Extract just the filename (handles both paths and filenames)
                             if '/' in screenshot_path or '\\' in screenshot_path:
-                                # Get just the filename
                                 screenshot_filename = os.path.basename(screenshot_path)
-                                relative_path = f"screenshots/{screenshot_filename}"
                             else:
-                                # Already just a filename
-                                relative_path = f"screenshots/{screenshot_path}"
+                                screenshot_filename = screenshot_path
+                            
+                            # Normalize path for HTML
+                            relative_path = f"screenshots/{screenshot_filename}"
+                            
+                            # Deduplicate by filename only (ignore path variations)
+                            if screenshot_filename not in unique_screenshots:
+                                unique_screenshots[screenshot_filename] = relative_path
+                    
+                    # Render unique fixes first (only ONE per unique pattern)
+                    if unique_fixes:
+                        html_content += "<h4>💡 Code Fix:</h4>"
+                        html_content += '<div class="node-details">'
+                        
+                        # Only render the FIRST unique fix (all others are identical patterns)
+                        first_fix = list(unique_fixes.values())[0]
+                        html_content += self._render_code_fix(first_fix)
+                        
+                        # Show count if there are multiple occurrences
+                        if len(violation['nodes']) > 1:
+                            html_content += f'<p style="margin-top: 15px; color: #6c757d; font-style: italic;">This issue occurs <strong>{len(violation["nodes"])} times</strong> on this page with the same pattern.</p>'
+                        
+                        html_content += '</div>'
+                    
+                    # Render deduplicated screenshots section (only unique images)
+                    if unique_screenshots:
+                        screenshot_count = len(unique_screenshots)
+                        total_nodes = len(violation['nodes'])
+                        html_content += f"<h4>📸 Visual Examples ({screenshot_count} unique image{'s' if screenshot_count > 1 else ''}, {total_nodes} total occurrence{'s' if total_nodes > 1 else ''}):</h4>"
+                        
+                        for relative_path in unique_screenshots.values():
                             html_content += '<div class="screenshot-wrapper">'
-                            html_content += '<h4>📸 Element Screenshot (Highlighted)</h4>'
                             html_content += f"<img src='{relative_path}' alt='Screenshot showing the problematic element highlighted in red' class='screenshot'>"
                             html_content += '</div>'
-                        html_content += '</div>'
+                    
                     html_content += "</div></details>"
             
             html_content += "</div></div>"
