@@ -468,10 +468,17 @@ class ReportGenerator:
                             before_code = fix.get('before', '').strip()
                             after_code = fix.get('after', '').strip()
                             
-                            # Normalize code by removing unique IDs to better deduplicate
-                            # (e.g., "panel_9173" and "panel_9172" are the same pattern)
-                            before_normalized = re.sub(r'id="[^"]*"', 'id="DYNAMIC"', before_code)
-                            after_normalized = re.sub(r'id="[^"]*"', 'id="DYNAMIC"', after_code)
+                            # Aggressive normalization to deduplicate by pattern:
+                            # 1. Remove all id="..." attributes entirely
+                            # 2. Remove random suffixes like -label-5775, -button-1234
+                            # 3. Normalize whitespace
+                            before_normalized = re.sub(r'id="[^"]*"', '', before_code)
+                            before_normalized = re.sub(r'-label-\d+|-button-\d+|-\d{1,4}', '', before_normalized)
+                            before_normalized = re.sub(r'\s+', ' ', before_normalized).strip()
+                            
+                            after_normalized = re.sub(r'id="[^"]*"', '', after_code)
+                            after_normalized = re.sub(r'-label-\d+|-button-\d+|-\d{1,4}', '', after_normalized)
+                            after_normalized = re.sub(r'\s+', ' ', after_normalized).strip()
                             
                             fix_key = f"{violation['id']}||{before_normalized}||{after_normalized}"
                             
